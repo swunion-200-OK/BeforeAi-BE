@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 import site.siyoung.beforeaibe.service.AuditWriter;
+import site.siyoung.beforeaibe.support.AuditActionMapper;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -59,7 +60,8 @@ public class AuditRequestInterceptor implements HandlerInterceptor {
 
         String pattern = routeTemplate(request);
         // 실패 상태(4xx/5xx)는 action 끝에 _FAILED를 붙여 내보내기 성공/실패 판정과 맞춘다
-        String action = truncate(method + " " + pattern + (status >= 400 ? "_FAILED" : ""));
+        String base = AuditActionMapper.map(method, pattern).orElse(method + " " + pattern);
+        String action = withSuffix(base, status >= 400 ? "_FAILED" : "");
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("method", method);
@@ -115,7 +117,9 @@ public class AuditRequestInterceptor implements HandlerInterceptor {
         return null;
     }
 
-    private static String truncate(String action) {
-        return action.length() <= 50 ? action : action.substring(0, 50);
+    // 본문을 먼저 잘라 접미사(_FAILED)가 항상 남게 한다(최종 50자 이하)
+    private static String withSuffix(String base, String suffix) {
+        int max = 50 - suffix.length();
+        return (base.length() <= max ? base : base.substring(0, max)) + suffix;
     }
 }

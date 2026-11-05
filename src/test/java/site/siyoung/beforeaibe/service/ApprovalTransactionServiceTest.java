@@ -25,7 +25,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -41,13 +44,14 @@ class ApprovalTransactionServiceTest {
     private final PlanHashService planHashService = mock(PlanHashService.class);
     private final RequestStreamService requestStreamService = mock(RequestStreamService.class);
     private final WebshellClient webshellClient = mock(WebshellClient.class);
+    private final AuditWriter auditWriter = mock(AuditWriter.class);
     private final ApprovalTransactionService service = new ApprovalTransactionService(
             requestService, requestRepository, approvalRepository, mock(SigningKeyRepository.class),
             executionRepository, planHashService, requestStreamService, webshellClient, new ApprovalPolicy(),
             mock(RequestStatusEventPublisher.class),
             mock(site.siyoung.beforeaibe.repository.RejectionRepository.class),
             mock(site.siyoung.beforeaibe.repository.ApprovalChangeRequestRepository.class),
-            mock(site.siyoung.beforeaibe.repository.UserRepository.class));
+            mock(site.siyoung.beforeaibe.repository.UserRepository.class), auditWriter);
 
     @Test
     void 승인_커밋_후_취소된_요청은_실행하지_않는다() {
@@ -111,6 +115,30 @@ class ApprovalTransactionServiceTest {
         assertThat(status).isEqualTo(RequestStatus.ROLLING_BACK);
         assertThat(request.getStatus()).isEqualTo(RequestStatus.ROLLING_BACK);
         assertThat(plan.getExecutorSignature()).isEqualTo("base64sig");
+        verify(auditWriter).recordAfterCommit(eq(null), eq("EXECUTION_STARTED"), eq(requestId), eq(List.of()),
+                eq(null), eq(null), eq(Map.of("planId", approvedPlanId.toString())));
+    }
+
+    @Test
+    void 웹쉘이_검증_실패로_거부하면_VERIFICATION_FAILED를_감사_기록한다() {
+        Request request = lockedRequest(RequestStatus.PENDING_APPROVAL, approvedPlanId);
+        Plan plan = Plan.builder().request(request).build();
+        ReflectionTestUtils.setField(plan, "id", approvedPlanId);
+        plan.addTask(Task.builder().risk(Risk.LOW).status(TaskStatus.APPROVED).build());
+        when(requestService.getCurrentPlan(request)).thenReturn(plan);
+        when(planHashService.hashTarget(request, plan)).thenReturn(Map.of());
+        when(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(approvedPlanId)).thenReturn(List.of());
+        when(webshellClient.submitExecution(any()))
+                .thenThrow(new WebshellClient.VerificationFailedException(List.of("SIGNATURE")));
+
+        RequestStatus status = service.requestExecution(requestId, approvedPlanId);
+
+        assertThat(status).isEqualTo(RequestStatus.VERIFICATION_FAILED);
+        verify(auditWriter).recordAfterCommit(eq(null), eq("VERIFICATION_FAILED"), eq(requestId), eq(List.of()),
+                eq(null), eq(null),
+                eq(Map.of("planId", approvedPlanId.toString(), "failedChecks", List.of("SIGNATURE"))));
+        verify(auditWriter, never()).recordAfterCommit(any(), eq("EXECUTION_STARTED"), any(), any(), any(), any(),
+                any());
     }
 
     @Test
