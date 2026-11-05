@@ -26,12 +26,14 @@ NETWORK_TRUST_PROXY_HEADER=true
 FORWARD_HEADERS_STRATEGY=framework
 # HTTPS 뒤이므로 리프레시 쿠키 Secure 유지
 AUTH_REFRESH_COOKIE_SECURE=true
-# CORS: 외부 프론트 도메인
-CORS_ALLOWED_ORIGINS=https://swunion.pages.dev,https://*.pages.dev
+# CORS: 외부 프론트(Cloudflare Pages) 출처. 운영 도메인 + 프리뷰 서브도메인.
+# *.pages.dev (모든 Pages 프로젝트)로 넓히지 말고 내 프로젝트 하위로 좁힌다.
+CORS_ALLOWED_ORIGINS=https://swunion.pages.dev,https://*.swunion.pages.dev
 ```
 
 > 참고: `CORS_ALLOWED_ORIGINS` 는 **브라우저 프론트의 출처**다(API 도메인이 아님).
-> 프론트가 `swunion-server.siyoung.site` 를 호출하는 쪽이고, 값에는 프론트 배포 출처를 넣는다.
+> 프론트는 Cloudflare Pages(`swunion.pages.dev`)이고 백엔드 API 는 `swunion-server.siyoung.site` 다.
+> Pages 프로젝트명이 다르면 그 도메인으로 바꾼다.
 
 > 중요: `NETWORK_TRUST_PROXY_HEADER=true` 로 켜는 순간, 앱은 소켓 IP 를 보지 않고 헤더만 본다.
 > 따라서 **반드시 두 Nginx 입구를 통해서만** 트래픽이 오게 하고, 8080 직접 접근을 막아야 한다.
