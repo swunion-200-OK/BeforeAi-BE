@@ -29,7 +29,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "plans")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Plan {
+public class Plan extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -71,6 +71,11 @@ public class Plan {
         this.baseCommit = baseCommit;
         this.planHash = planHash;
         this.executorSignature = executorSignature;
+    }
+
+    // 제출(submit)이나 실패 작업 재시도 때 웹 서비스가 계산한 표시용 해시를 채움
+    public void assignHash(String planHash) {
+        this.planHash = planHash;
     }
 
     // Task 추가는 addTask()로만 하도록 읽기 전용으로 노출

@@ -3,6 +3,7 @@ package site.siyoung.beforeaibe.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -77,7 +78,11 @@ public class GlobalExceptionHandler {
         return error(ErrorCode.VALIDATION_ERROR, ErrorCode.VALIDATION_ERROR.getMessage(), details);
     }
 
+    // Content-Type을 JSON으로 고정해 Accept 협상을 거치지 않게 함. 그래야 SSE 구독(Accept: text/event-stream)에서
+    // 권한 오류가 나도 500(HttpMediaTypeNotAcceptableException)이 아니라 명세 형식의 오류로 응답함
     private ResponseEntity<ErrorResponse> error(ErrorCode code, String message, Map<String, Object> details) {
-        return ResponseEntity.status(code.getStatus()).body(ErrorResponse.of(code, message, details));
+        return ResponseEntity.status(code.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ErrorResponse.of(code, message, details));
     }
 }

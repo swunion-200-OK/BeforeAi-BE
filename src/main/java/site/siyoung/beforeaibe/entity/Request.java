@@ -69,6 +69,36 @@ public class Request extends BaseTimeEntity {
         this.currentPlanId = currentPlanId;
     }
 
+    // 실패한 AI 분석을 다시 돌림. 시도 횟수 상한 검사는 서비스에서 함
+    public void retryAnalysis() {
+        this.analysisAttempts++;
+        this.status = RequestStatus.ANALYZING;
+    }
+
+    // Plan 수정·확인 질문 답변 뒤 재분석. 삭제를 반영한 새 Plan이 있으면 현재 Plan으로 바꿈
+    public void startReanalysis(UUID planId) {
+        this.currentPlanId = planId;
+        this.status = RequestStatus.ANALYZING;
+    }
+
+    public void submit() {
+        this.status = RequestStatus.PENDING_APPROVAL;
+    }
+
+    // 부분 완료 요청의 실패 작업으로 만든 새 Plan을 승인 대기로 올림
+    public void retryFailedTasks(UUID planId) {
+        this.currentPlanId = planId;
+        this.status = RequestStatus.PENDING_APPROVAL;
+    }
+
+    public void cancel() {
+        this.status = RequestStatus.CANCELED;
+    }
+
+    public void kill() {
+        this.status = RequestStatus.KILLED;
+    }
+
     public void askClarification(String clarification) {
         this.clarification = clarification;
     }
