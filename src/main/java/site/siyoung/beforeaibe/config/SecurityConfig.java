@@ -60,6 +60,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/otp/verify",
                                 "/api/v1/auth/refresh").permitAll()
+                        // 웹쉘 콜백은 사용자 토큰이 없음. 내부망 출발지(@InternalNetworkOnly)와 이벤트의 웹쉘 서명으로 확인함
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/executions/*/events").permitAll()
                         // 기존에 열려 있던 API 문서와 오류 페이지, 헬스체크(actuator)는 인증 없이 열어 둠
                         .requestMatchers("/error", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()

@@ -125,6 +125,11 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.KILLED;
     }
 
+    // 웹쉘이 실행 종료를 알리면 최종 상태로 전이 (COMPLETED·PARTIALLY_COMPLETED·FAILED·ROLLED_BACK·ROLLBACK_FAILED)
+    public void finishExecution(RequestStatus status) {
+        this.status = status;
+    }
+
     public void askClarification(String clarification) {
         this.clarification = clarification;
     }

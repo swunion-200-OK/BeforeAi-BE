@@ -3,7 +3,7 @@
     "_postman_id": "27668f59-67b0-54f3-8cfb-c68e53606651",
     "name": "BeforeAI API — 요청·응답 예시 (Postman Collection v2.0)",
     "schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
-    "description": "`.docs/api.md`를 기준으로 작성한 Postman Collection **v2.0.0**입니다. 웹 서비스 79개, 웹쉘 8개, 콜백 1개로 총 88개 엔드포인트를 포함합니다. 각 item에는 request와 response Examples 및 한국어 상세 설명이 있습니다.\n\n**사용 방법**\n1. Postman → Import에서 이 JSON 파일을 선택합니다.\n2. Collection Variables의 baseUrl과 webshellBaseUrl을 실제 환경에 맞게 설정합니다. baseUrl 기본값의 /api/v1은 downloadUrl과 콜백 경로에 근거한 가정입니다. 웹쉘 변수에는 /v1을 붙이지 않습니다.\n3. 실제 계정·토큰·리소스 ID·기준 커밋을 변수에 입력합니다. 인증 응답을 받으면 토큰을 직접 변수에 반영합니다. Bearer 인증은 명세에 확정되지 않은 전달 방식의 예시입니다. 쿠키 등 실제 구현에 맞게 변경합니다.\n4. 요청 상세의 Examples에서 저장된 성공/오류 응답을 확인합니다. 선택 필터 및 SSE Last-Event-ID는 기본 비활성화되어 있습니다.\n5. 프롬프트 생성 → 상세 조회(분석 완료 확인) → Plan 검토/수정 → submit → approval-context 검증 → 기기 서명·암호화 → approvals → progress/logs 조회 순서로 사용합니다. 요청 생성/submit 응답의 실제 requestId·planId·planHash 등을 다음 요청에 반영합니다.\n6. 웹쉘은 내부망 및 웹 서비스 서버 인증서의 mTLS가 필요합니다. 웹쉘 콜백은 웹 서비스 호스트에 웹쉘 클라이언트 인증서를 설정합니다. 인증서는 Postman Settings → Certificates에서 목적지 호스트·포트별로 등록합니다. 인증서와 개인키는 컬렉션에 포함하지 않았습니다.\n\n**명세와 예시의 구분**\n- 2장 모델, 4장 상세 API, 5.1 실행 요청의 명시된 req/res는 해당 구조를 반영했습니다. 생략된 객체는 모델로 확장하고 샘플 ID는 일관된 UUID로 치환했습니다.\n- 목록에만 있는 API는 본문 필드명·성공 코드·응답 래퍼 등이 미정이므로 각 요청 및 응답 이름에 ‘예시 / 계약 미정’을 표시했습니다. items/nextCursor 등의 임의 래퍼나 관리자 서명 구조를 확정 계약으로 간주하지 마세요.\n- 정확한 오류 status/code는 명세를 따르되 웹 서비스 공통 오류 본문과 message는 5.1 형식을 참고한 예시입니다. 실행 로그 SSE의 event/data 구조도 미정입니다. 페이지 요청 파라미터가 정의되지 않은 API에는 cursor/limit 등을 임의로 추가하지 않았습니다.\n- 컬렉션을 가져온 것만으로 서버 API가 구현되거나 유효한 서명이 생성되지는 않습니다. 자동 실행 스크립트는 없으며 개별 요청을 목적에 맞게 선택해 실행합니다. 전체 Run을 정상 업무 시나리오로 간주하지 마세요.\n\n**승인·암호화 규칙**\n- TaskType: DOC, CODE_MINOR, CODE_FEATURE, DATA_READ, DATA_WRITE, DB, DEPLOY. 기본 Risk는 각각 LOW, LOW, MEDIUM, MEDIUM, HIGH, HIGH, HIGH이며 금지 정책은 FORBIDDEN입니다.\n- requiredApprovers는 {rule,count,candidates?}의 배열입니다. rule: ANYONE, SAME_DEPT_OTHER, PROJECT_OWNER, DEPT_MANAGER, ADMIN.\n- 기기가 hashTarget을 RFC 8785(JCS) 정규화 후 SHA-256으로 재계산하고 화면 Plan과 동일함을 확인한 후 Ed25519로 payload에 서명합니다. {payload,signature}를 기기에 고정된 웹쉘 X25519 공개키로 HPKE(X25519 + AES-256-GCM) 암호화합니다.\n- 승인 요청에 개인키나 평문 payload/signature를 추가하지 않습니다. approverId는 로그인 사용자, network는 서버 출발지 IP 판별값입니다. 평문 planHash/taskIds/keyId는 표시·사전 검사용이며 실행 판단은 웹쉘이 복호화한 서명과 자체 정책만으로 합니다.\n- nonce는 기기에서 생성한 일회용 값이며 웹쉘이 성공 실행 시 원자적으로 소진합니다. 서명 만료 항목은 없습니다. 샘플 해시·키·서명·암호문은 실제 암호학적 값이 아니며 별도 기기 구현으로 생성해야 합니다.\n- 외부망의 승인/거부는 CODE_MINOR·CODE_FEATURE만 허용합니다. DOC의 적용도 approvals, 미적용도 rejections를 사용하며 외부망에서는 차단됩니다.\n\n**상태·실시간 조회·내보내기**\n- 주요 요청 상태: ANALYZING, REVIEWING, ANALYSIS_FAILED, PENDING_APPROVAL, REAPPROVAL_REQUIRED, VERIFICATION_FAILED, RUNNING, COMPLETED, PARTIALLY_COMPLETED, FAILED, REJECTED, CANCELED, KILLED, ROLLING_BACK, ROLLED_BACK, ROLLBACK_FAILED. 이 목록은 문서에 등장하는 상태를 모은 것입니다.\n- TaskStatus: PENDING, APPROVED, REJECTED, BLOCKED, RUNNING, SUCCEEDED, FAILED, SKIPPED, ROLLED_BACK. Risk: LOW, MEDIUM, HIGH, FORBIDDEN.\n- Role: ADMIN, DEPT_MANAGER, EMPLOYEE. Network: INTERNAL, EXTERNAL. Request source: PROMPT, EDITOR, ROLLBACK. Plan kind: NORMAL, ROLLBACK.\n- 6장에 없는 상태에서 상태 변경 API를 호출하면 409 INVALID_STATE입니다. Plan 변경·실패 작업 재시도·문서 롤백에는 새 Plan에 대한 새 승인 서명이 필요합니다.\n- progress 전체 조회 후 progress/stream을 구독합니다. SSE id는 version이며 재연결 시 Last-Event-ID를 사용합니다. tree.replaced를 받으면 전체 트리를 다시 조회합니다. heartbeat는 30초 간격입니다.\n- ExportFormat: CSV, XLSX. ExportStatus: PROCESSING, READY, FAILED, EXPIRED. 내보내기는 내부망, 최대 100,000건이며 READY 후 1시간 동안 다운로드할 수 있습니다. CSV는 UTF-8 BOM, XLSX는 바이너리 응답입니다.\n\n**변수 관리**\n비밀번호, 토큰, 키 자료와 서명·암호문 변수는 빈 값으로 두었습니다. 문서의 예시 UUID는 실존 리소스가 아닙니다. Postman의 로컬 환경/변수에 실제 값을 입력하고 공유 시 비밀값을 내보내지 않습니다. 같은 프로젝트/요청/Plan의 ID를 일관되게 사용하세요."
+    "description": "`.docs/api.md`를 기준으로 작성한 Postman Collection **v2.0.0**입니다. 웹 서비스 83개(3.10 결재 문서 4개 포함), 웹쉘 8개, 콜백 1개로 총 92개 엔드포인트를 포함합니다. 각 item에는 request와 response Examples 및 한국어 상세 설명이 있습니다.\n\n**사용 방법**\n1. Postman → Import에서 이 JSON 파일을 선택합니다.\n2. Collection Variables의 baseUrl과 webshellBaseUrl을 실제 환경에 맞게 설정합니다. baseUrl 기본값의 /api/v1은 downloadUrl과 콜백 경로에 근거한 가정입니다. 웹쉘 변수에는 /v1을 붙이지 않습니다.\n3. 실제 계정·토큰·리소스 ID·기준 커밋을 변수에 입력합니다. 인증 응답을 받으면 토큰을 직접 변수에 반영합니다. Bearer 인증은 명세에 확정되지 않은 전달 방식의 예시입니다. 쿠키 등 실제 구현에 맞게 변경합니다.\n4. 요청 상세의 Examples에서 저장된 성공/오류 응답을 확인합니다. 선택 필터 및 SSE Last-Event-ID는 기본 비활성화되어 있습니다.\n5. 프롬프트 생성 → 상세 조회(분석 완료 확인) → Plan 검토/수정 → submit → approval-context 검증 → 기기 서명·암호화 → approvals → progress/logs 조회 순서로 사용합니다. 요청 생성/submit 응답의 실제 requestId·planId·planHash 등을 다음 요청에 반영합니다.\n6. 웹쉘은 내부망 및 웹 서비스 서버 인증서의 mTLS가 필요합니다. 웹쉘 콜백은 웹 서비스 호스트에 웹쉘 클라이언트 인증서를 설정합니다. 인증서는 Postman Settings → Certificates에서 목적지 호스트·포트별로 등록합니다. 인증서와 개인키는 컬렉션에 포함하지 않았습니다.\n\n**명세와 예시의 구분**\n- 2장 모델, 4장 상세 API, 5.1 실행 요청의 명시된 req/res는 해당 구조를 반영했습니다. 생략된 객체는 모델로 확장하고 샘플 ID는 일관된 UUID로 치환했습니다.\n- 목록에만 있는 API는 본문 필드명·성공 코드·응답 래퍼 등이 미정이므로 각 요청 및 응답 이름에 ‘예시 / 계약 미정’을 표시했습니다. items/nextCursor 등의 임의 래퍼나 관리자 서명 구조를 확정 계약으로 간주하지 마세요.\n- 정확한 오류 status/code는 명세를 따르되 웹 서비스 공통 오류 본문과 message는 5.1 형식을 참고한 예시입니다. 실행 로그 SSE의 event/data 구조도 미정입니다. 페이지 요청 파라미터가 정의되지 않은 API에는 cursor/limit 등을 임의로 추가하지 않았습니다.\n- 컬렉션을 가져온 것만으로 서버 API가 구현되거나 유효한 서명이 생성되지는 않습니다. 자동 실행 스크립트는 없으며 개별 요청을 목적에 맞게 선택해 실행합니다. 전체 Run을 정상 업무 시나리오로 간주하지 마세요.\n\n**승인·암호화 규칙**\n- TaskType: DOC, CODE_MINOR, CODE_FEATURE, DATA_READ, DATA_WRITE, DB, DEPLOY. 기본 Risk는 각각 LOW, LOW, MEDIUM, MEDIUM, HIGH, HIGH, HIGH이며 금지 정책은 FORBIDDEN입니다.\n- requiredApprovers는 {rule,count,candidates?}의 배열입니다. rule: ANYONE, SAME_DEPT_OTHER, PROJECT_OWNER, DEPT_MANAGER, ADMIN.\n- 기기가 hashTarget을 RFC 8785(JCS) 정규화 후 SHA-256으로 재계산하고 화면 Plan과 동일함을 확인한 후 Ed25519로 payload에 서명합니다. {payload,signature}를 기기에 고정된 웹쉘 X25519 공개키로 HPKE(X25519 + AES-256-GCM) 암호화합니다.\n- 승인 요청에 개인키나 평문 payload/signature를 추가하지 않습니다. approverId는 로그인 사용자, network는 서버 출발지 IP 판별값입니다. 평문 planHash/taskIds/keyId는 표시·사전 검사용이며 실행 판단은 웹쉘이 복호화한 서명과 자체 정책만으로 합니다.\n- nonce는 기기에서 생성한 일회용 값이며 웹쉘이 성공 실행 시 원자적으로 소진합니다. 서명 만료 항목은 없습니다. 샘플 해시·키·서명·암호문은 실제 암호학적 값이 아니며 별도 기기 구현으로 생성해야 합니다.\n- 외부망의 승인/거부는 CODE_MINOR·CODE_FEATURE만 허용합니다. DOC의 적용도 approvals, 미적용도 rejections를 사용하며 외부망에서는 차단됩니다.\n\n**상태·실시간 조회·내보내기**\n- 주요 요청 상태: ANALYZING, REVIEWING, ANALYSIS_FAILED, PENDING_APPROVAL, REAPPROVAL_REQUIRED, VERIFICATION_FAILED, RUNNING, COMPLETED, PARTIALLY_COMPLETED, FAILED, REJECTED, CANCELED, KILLED, ROLLING_BACK, ROLLED_BACK, ROLLBACK_FAILED. 이 목록은 문서에 등장하는 상태를 모은 것입니다.\n- TaskStatus: PENDING, APPROVED, REJECTED, BLOCKED, RUNNING, SUCCEEDED, FAILED, SKIPPED, ROLLED_BACK. Risk: LOW, MEDIUM, HIGH, FORBIDDEN.\n- Role: ADMIN, DEPT_MANAGER, EMPLOYEE. Network: INTERNAL, EXTERNAL. Request source: PROMPT, EDITOR, ROLLBACK. Plan kind: NORMAL, ROLLBACK.\n- 6장에 없는 상태에서 상태 변경 API를 호출하면 409 INVALID_STATE입니다. Plan 변경·실패 작업 재시도·문서 롤백에는 새 Plan에 대한 새 승인 서명이 필요합니다.\n- progress 전체 조회 후 progress/stream을 구독합니다. SSE id는 version이며 재연결 시 Last-Event-ID를 사용합니다. tree.replaced를 받으면 전체 트리를 다시 조회합니다. heartbeat는 30초 간격입니다.\n- ExportFormat: CSV, XLSX. ExportStatus: PROCESSING, READY, FAILED, EXPIRED. 내보내기는 내부망, 최대 100,000건이며 READY 후 1시간 동안 다운로드할 수 있습니다. CSV는 UTF-8 BOM, XLSX는 바이너리 응답입니다.\n\n**변수 관리**\n비밀번호, 토큰, 키 자료와 서명·암호문 변수는 빈 값으로 두었습니다. 문서의 예시 UUID는 실존 리소스가 아닙니다. Postman의 로컬 환경/변수에 실제 값을 입력하고 공유 시 비밀값을 내보내지 않습니다. 같은 프로젝트/요청/Plan의 ID를 일관되게 사용하세요."
   },
   "variable": [
     {
@@ -8647,6 +8647,740 @@
       ]
     },
     {
+      "name": "3.10 결재 문서·PDF",
+      "description": "결재 문서 미리보기·PDF 다운로드 API입니다. 원문 명세에 없던 기능이라 구현에 맞춰 추가했습니다. 응답 PDF는 서버(OpenPDF)가 만들며 한글 폰트(Noto Sans KR)를 내장합니다.",
+      "item": [
+        {
+          "name": "GET /requests/{requestId}/approval-document — 결재 문서 최신 판 미리보기(PDF)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/pdf",
+                "description": "응답 형식."
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "액세스 토큰(Bearer)."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "requests",
+                "{{requestId}}",
+                "approval-document"
+              ]
+            },
+            "description": "**목적**\n승인 화면에서 볼 결재 문서 최신 판을 서버가 만든 PDF로 미리 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`. 오류는 Accept와 상관없이 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n승인 진행 중에도 조회할 수 있습니다. 도장이 아직 없는 자리는 '미결'로, 결재 완료가 아니면 상태 워터마크가 표시됩니다. 실행이 시작된 뒤에는 작업별 최종 상태(실행 결과)가 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · 성공 (PDF)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document"
+                  ]
+                },
+                "description": "**목적**\n승인 화면에서 볼 결재 문서 최신 판을 서버가 만든 PDF로 미리 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`. 오류는 Accept와 상관없이 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n승인 진행 중에도 조회할 수 있습니다. 도장이 아직 없는 자리는 '미결'로, 결재 완료가 아니면 상태 워터마크가 표시됩니다. 실행이 시작된 뒤에는 작업별 최종 상태(실행 결과)가 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/pdf"
+                },
+                {
+                  "key": "Content-Disposition",
+                  "value": "inline; filename=\"approval-document-3cc84fb8-bf15-50bf-ba57-a96cb27fc8b0.pdf\""
+                }
+              ],
+              "cookie": [],
+              "body": "%PDF-1.7 … (바이너리 PDF)"
+            },
+            {
+              "name": "404 · NOT_FOUND",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document"
+                  ]
+                },
+                "description": "**목적**\n승인 화면에서 볼 결재 문서 최신 판을 서버가 만든 PDF로 미리 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`. 오류는 Accept와 상관없이 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n승인 진행 중에도 조회할 수 있습니다. 도장이 아직 없는 자리는 '미결'로, 결재 완료가 아니면 상태 워터마크가 표시됩니다. 실행이 시작된 뒤에는 작업별 최종 상태(실행 결과)가 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"결재 문서를 찾을 수 없습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "403 · FORBIDDEN_ROLE",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document"
+                  ]
+                },
+                "description": "**목적**\n승인 화면에서 볼 결재 문서 최신 판을 서버가 만든 PDF로 미리 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`. 오류는 Accept와 상관없이 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n승인 진행 중에도 조회할 수 있습니다. 도장이 아직 없는 자리는 '미결'로, 결재 완료가 아니면 상태 워터마크가 표시됩니다. 실행이 시작된 뒤에는 작업별 최종 상태(실행 결과)가 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"FORBIDDEN_ROLE\",\n    \"message\": \"권한이 없습니다\",\n    \"details\": {}\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /requests/{requestId}/approval-document/versions — 결재 문서 판 이력",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "description": "응답 형식."
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "액세스 토큰(Bearer)."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "requests",
+                "{{requestId}}",
+                "approval-document",
+                "versions"
+              ]
+            },
+            "description": "**목적**\n결재 문서의 판(v1, v2 …) 목록과 판별 상태를 확인합니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 페이지를 나누지 않으며 `nextCursor`는 항상 null입니다.\n\n**응답**\n200 OK. `items[]`: `documentId`, `version`, `planId`, `planHash`, `status`(IN_PROGRESS·APPROVED·REVISING·SUPERSEDED·REJECTED·CANCELED·KILLED. REVISING은 제출 뒤 요청자가 Plan을 고치는 중이며 다시 제출되면 다음 판이 생김), `downloadable`, `createdAt`. 최신 판이 먼저 옵니다.\n\n**처리 흐름·제약**\n이전 판은 SUPERSEDED이며, 판 미리보기로 그 판의 도장과 함께 볼 수 있습니다. downloadable은 최신 판이 APPROVED일 때만 true입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · 성공",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions"
+                  ]
+                },
+                "description": "**목적**\n결재 문서의 판(v1, v2 …) 목록과 판별 상태를 확인합니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 페이지를 나누지 않으며 `nextCursor`는 항상 null입니다.\n\n**응답**\n200 OK. `items[]`: `documentId`, `version`, `planId`, `planHash`, `status`(IN_PROGRESS·APPROVED·REVISING·SUPERSEDED·REJECTED·CANCELED·KILLED. REVISING은 제출 뒤 요청자가 Plan을 고치는 중이며 다시 제출되면 다음 판이 생김), `downloadable`, `createdAt`. 최신 판이 먼저 옵니다.\n\n**처리 흐름·제약**\n이전 판은 SUPERSEDED이며, 판 미리보기로 그 판의 도장과 함께 볼 수 있습니다. downloadable은 최신 판이 APPROVED일 때만 true입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"items\": [\n    {\n      \"documentId\": \"6a0f3c1e-2b4d-5e6f-8a9b-0c1d2e3f4a5b\",\n      \"version\": 2,\n      \"planId\": \"8b2e4d6f-1a3c-5e7a-9b1d-3f5a7c9e1b3d\",\n      \"planHash\": \"sha256:4f1c2b9e0a7d3e5f\",\n      \"status\": \"IN_PROGRESS\",\n      \"downloadable\": false,\n      \"createdAt\": \"2026-11-05T05:40:00Z\"\n    },\n    {\n      \"documentId\": \"6a0f3c1e-2b4d-5e6f-8a9b-0c1d2e3f4a5b\",\n      \"version\": 1,\n      \"planId\": \"2c4e6a8b-0d2f-4a6c-8e0b-2d4f6a8c0e2a\",\n      \"planHash\": \"sha256:9e8d7c6b5a4f3e2d\",\n      \"status\": \"SUPERSEDED\",\n      \"downloadable\": false,\n      \"createdAt\": \"2026-11-05T05:30:00Z\"\n    }\n  ],\n  \"nextCursor\": null\n}"
+            },
+            {
+              "name": "404 · NOT_FOUND",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions"
+                  ]
+                },
+                "description": "**목적**\n결재 문서의 판(v1, v2 …) 목록과 판별 상태를 확인합니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 페이지를 나누지 않으며 `nextCursor`는 항상 null입니다.\n\n**응답**\n200 OK. `items[]`: `documentId`, `version`, `planId`, `planHash`, `status`(IN_PROGRESS·APPROVED·REVISING·SUPERSEDED·REJECTED·CANCELED·KILLED. REVISING은 제출 뒤 요청자가 Plan을 고치는 중이며 다시 제출되면 다음 판이 생김), `downloadable`, `createdAt`. 최신 판이 먼저 옵니다.\n\n**처리 흐름·제약**\n이전 판은 SUPERSEDED이며, 판 미리보기로 그 판의 도장과 함께 볼 수 있습니다. downloadable은 최신 판이 APPROVED일 때만 true입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"결재 문서를 찾을 수 없습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "403 · FORBIDDEN_ROLE",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions"
+                  ]
+                },
+                "description": "**목적**\n결재 문서의 판(v1, v2 …) 목록과 판별 상태를 확인합니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 페이지를 나누지 않으며 `nextCursor`는 항상 null입니다.\n\n**응답**\n200 OK. `items[]`: `documentId`, `version`, `planId`, `planHash`, `status`(IN_PROGRESS·APPROVED·REVISING·SUPERSEDED·REJECTED·CANCELED·KILLED. REVISING은 제출 뒤 요청자가 Plan을 고치는 중이며 다시 제출되면 다음 판이 생김), `downloadable`, `createdAt`. 최신 판이 먼저 옵니다.\n\n**처리 흐름·제약**\n이전 판은 SUPERSEDED이며, 판 미리보기로 그 판의 도장과 함께 볼 수 있습니다. downloadable은 최신 판이 APPROVED일 때만 true입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"FORBIDDEN_ROLE\",\n    \"message\": \"권한이 없습니다\",\n    \"details\": {}\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /requests/{requestId}/approval-document/versions/{version} — 결재 문서 특정 판 미리보기(PDF)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/pdf",
+                "description": "응답 형식."
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "액세스 토큰(Bearer)."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions/{{version}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "requests",
+                "{{requestId}}",
+                "approval-document",
+                "versions",
+                "{{version}}"
+              ]
+            },
+            "description": "**목적**\n특정 판(이전 판 포함)을 서버가 만든 PDF로 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`, `version` → `{{version}}`.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`.\n\n**처리 흐름·제약**\n이전 판은 기록 열람용입니다. 이전 판은 PDF 다운로드(/pdf) 대상이 아닙니다. 없는 판이면 404입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · 성공 (PDF)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions/{{version}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions",
+                    "{{version}}"
+                  ]
+                },
+                "description": "**목적**\n특정 판(이전 판 포함)을 서버가 만든 PDF로 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`, `version` → `{{version}}`.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`.\n\n**처리 흐름·제약**\n이전 판은 기록 열람용입니다. 이전 판은 PDF 다운로드(/pdf) 대상이 아닙니다. 없는 판이면 404입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/pdf"
+                },
+                {
+                  "key": "Content-Disposition",
+                  "value": "inline; filename=\"approval-document-3cc84fb8-bf15-50bf-ba57-a96cb27fc8b0-v1.pdf\""
+                }
+              ],
+              "cookie": [],
+              "body": "%PDF-1.7 … (바이너리 PDF)"
+            },
+            {
+              "name": "404 · NOT_FOUND",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions/{{version}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions",
+                    "{{version}}"
+                  ]
+                },
+                "description": "**목적**\n특정 판(이전 판 포함)을 서버가 만든 PDF로 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`, `version` → `{{version}}`.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`.\n\n**처리 흐름·제약**\n이전 판은 기록 열람용입니다. 이전 판은 PDF 다운로드(/pdf) 대상이 아닙니다. 없는 판이면 404입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"결재 문서 판을 찾을 수 없습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "403 · FORBIDDEN_ROLE",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/versions/{{version}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "versions",
+                    "{{version}}"
+                  ]
+                },
+                "description": "**목적**\n특정 판(이전 판 포함)을 서버가 만든 PDF로 봅니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`, `version` → `{{version}}`.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: inline`.\n\n**처리 흐름·제약**\n이전 판은 기록 열람용입니다. 이전 판은 PDF 다운로드(/pdf) 대상이 아닙니다. 없는 판이면 404입니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"FORBIDDEN_ROLE\",\n    \"message\": \"권한이 없습니다\",\n    \"details\": {}\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /requests/{requestId}/approval-document/pdf — 승인 완료된 결재 문서 PDF 다운로드",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/pdf",
+                "description": "응답 형식."
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "description": "액세스 토큰(Bearer)."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/pdf",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "requests",
+                "{{requestId}}",
+                "approval-document",
+                "pdf"
+              ]
+            },
+            "description": "**목적**\n필요한 승인이 끝난 결재 문서 최신 판을 PDF 파일로 받습니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: attachment`. 오류는 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n금지 작업을 뺀 모든 작업이 필요 승인 수를 채웠을 때만 받을 수 있습니다(승인 기록 기준이라 실행 뒤에도 받을 수 있음). 거부·취소·중단된 요청과 이전 판은 받을 수 없습니다(409). 실행 뒤에 받으면 작업별 최종 상태가 함께 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [
+            {
+              "name": "200 · 성공 (PDF)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/pdf",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "pdf"
+                  ]
+                },
+                "description": "**목적**\n필요한 승인이 끝난 결재 문서 최신 판을 PDF 파일로 받습니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: attachment`. 오류는 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n금지 작업을 뺀 모든 작업이 필요 승인 수를 채웠을 때만 받을 수 있습니다(승인 기록 기준이라 실행 뒤에도 받을 수 있음). 거부·취소·중단된 요청과 이전 판은 받을 수 없습니다(409). 실행 뒤에 받으면 작업별 최종 상태가 함께 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/pdf"
+                },
+                {
+                  "key": "Content-Disposition",
+                  "value": "attachment; filename=\"approval-document-3cc84fb8-bf15-50bf-ba57-a96cb27fc8b0.pdf\""
+                }
+              ],
+              "cookie": [],
+              "body": "%PDF-1.7 … (바이너리 PDF)"
+            },
+            {
+              "name": "409 · INVALID_STATE",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/pdf",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "pdf"
+                  ]
+                },
+                "description": "**목적**\n필요한 승인이 끝난 결재 문서 최신 판을 PDF 파일로 받습니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: attachment`. 오류는 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n금지 작업을 뺀 모든 작업이 필요 승인 수를 채웠을 때만 받을 수 있습니다(승인 기록 기준이라 실행 뒤에도 받을 수 있음). 거부·취소·중단된 요청과 이전 판은 받을 수 없습니다(409). 실행 뒤에 받으면 작업별 최종 상태가 함께 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"INVALID_STATE\",\n    \"message\": \"필요한 승인이 모두 끝난 결재 문서만 받을 수 있습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "404 · NOT_FOUND",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/pdf",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "pdf"
+                  ]
+                },
+                "description": "**목적**\n필요한 승인이 끝난 결재 문서 최신 판을 PDF 파일로 받습니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: attachment`. 오류는 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n금지 작업을 뺀 모든 작업이 필요 승인 수를 채웠을 때만 받을 수 있습니다(승인 기록 기준이라 실행 뒤에도 받을 수 있음). 거부·취소·중단된 요청과 이전 판은 받을 수 없습니다(409). 실행 뒤에 받으면 작업별 최종 상태가 함께 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"결재 문서를 찾을 수 없습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "403 · FORBIDDEN_ROLE",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf",
+                    "description": "응답 형식."
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "description": "액세스 토큰(Bearer)."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/requests/{{requestId}}/approval-document/pdf",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "requests",
+                    "{{requestId}}",
+                    "approval-document",
+                    "pdf"
+                  ]
+                },
+                "description": "**목적**\n필요한 승인이 끝난 결재 문서 최신 판을 PDF 파일로 받습니다.\n\n**명세 위치**\n결재 문서 미리보기·PDF (원문 명세 외 추가 API)\n\n**권한·접속 환경**\n권한: 요청을 볼 수 있는 사용자(ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보) / 망: 전체(외부망 허용).\n\n**결재 문서 규칙**\n프롬프트 요청(source=PROMPT) 하나당 결재 문서 하나입니다. submit 때 판(v1)이 생기고, 승인 도중 Plan이 바뀌어 다시 submit되면 다음 판이 되며 이전 판은 기록으로 남습니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다. 결재란은 작업마다 칸 하나이고, 칸 안의 도장 자리 수는 필요 승인 수 합입니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.\n\n**입력**\n경로 변수: `requestId` → `{{requestId}}`. 본문 없음.\n\n**응답**\n200 OK, `Content-Type: application/pdf`, `Content-Disposition: attachment`. 오류는 JSON 오류 형식입니다.\n\n**처리 흐름·제약**\n금지 작업을 뺀 모든 작업이 필요 승인 수를 채웠을 때만 받을 수 있습니다(승인 기록 기준이라 실행 뒤에도 받을 수 있음). 거부·취소·중단된 요청과 이전 판은 받을 수 없습니다(409). 실행 뒤에 받으면 작업별 최종 상태가 함께 담깁니다.\n\n**계약 확정 여부**\n구현에 맞춰 작성한 계약입니다.",
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"FORBIDDEN_ROLE\",\n    \"message\": \"권한이 없습니다\",\n    \"details\": {}\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "5. 웹쉘 API (내부망·mTLS)",
       "description": "webshellBaseUrl로 호출합니다. Tailscale 내부망에서 웹 서비스 서버의 클라이언트 인증서를 Postman Settings > Certificates에 등록해야 합니다. Bearer 토큰으로 인증을 대신할 수 없습니다. 브라우저 직접 호출용 API가 아닙니다.",
       "item": [
@@ -9370,7 +10104,7 @@
                 "events"
               ]
             },
-            "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보. 이벤트마다 웹쉘 서명을 붙임 (mTLS)\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n권한: 웹쉘 서버의 클라이언트 인증서(mTLS) / 망: 내부망. 서버 간 mTLS 인증. 해당 목적지 호스트에 역할에 맞는 클라이언트 인증서를 설정합니다.\n\n**입력**\n경로 변수: `executionId` → `{{executionId}}`.\n\nexecutionId: 실행 ID. eventId/type/at/data/webshellSignature 등 모든 이벤트 필드와 응답 코드는 명세에 없는 예시입니다. 이벤트마다 실제 웹쉘 서명이 필요합니다.\n\n**응답**\n204 No Content 예시. 응답 본문은 없습니다.\n\n**처리 흐름·제약**\n방향은 웹쉘→웹 서비스이며 대상 호스트는 baseUrl입니다. 전체 경로 /api/v1/internal/...에서 baseUrl에 이미 포함된 /api/v1을 중복하지 않습니다. 웹쉘의 클라이언트 인증서로 mTLS를 사용합니다. 작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 수신합니다. RUNNING/ROLLING_BACK에서 최종 상태 COMPLETED, PARTIALLY_COMPLETED, FAILED, ROLLED_BACK, ROLLBACK_FAILED로 전이할 수 있습니다. 검증된 실행 이벤트만 진행 트리 STEP에 반영합니다.\n\n**계약 확정 여부**\n이 API는 명세에 요청 또는 응답 스키마·성공 코드가 구체적으로 정의되지 않았습니다. 저장된 req/res의 필드명, 래퍼, 성공 코드는 사용 방법을 설명하기 위한 예시이며 확정 계약이 아닙니다.",
+            "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
             "auth": {
               "type": "noauth"
             },
@@ -9381,7 +10115,7 @@
           },
           "response": [
             {
-              "name": "204 · 성공 · 스키마·상태코드 예시 / 계약 미정",
+              "name": "204 · 성공",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -9408,7 +10142,7 @@
                     "events"
                   ]
                 },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보. 이벤트마다 웹쉘 서명을 붙임 (mTLS)\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n권한: 웹쉘 서버의 클라이언트 인증서(mTLS) / 망: 내부망. 서버 간 mTLS 인증. 해당 목적지 호스트에 역할에 맞는 클라이언트 인증서를 설정합니다.\n\n**입력**\n경로 변수: `executionId` → `{{executionId}}`.\n\nexecutionId: 실행 ID. eventId/type/at/data/webshellSignature 등 모든 이벤트 필드와 응답 코드는 명세에 없는 예시입니다. 이벤트마다 실제 웹쉘 서명이 필요합니다.\n\n**응답**\n204 No Content 예시. 응답 본문은 없습니다.\n\n**처리 흐름·제약**\n방향은 웹쉘→웹 서비스이며 대상 호스트는 baseUrl입니다. 전체 경로 /api/v1/internal/...에서 baseUrl에 이미 포함된 /api/v1을 중복하지 않습니다. 웹쉘의 클라이언트 인증서로 mTLS를 사용합니다. 작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 수신합니다. RUNNING/ROLLING_BACK에서 최종 상태 COMPLETED, PARTIALLY_COMPLETED, FAILED, ROLLED_BACK, ROLLBACK_FAILED로 전이할 수 있습니다. 검증된 실행 이벤트만 진행 트리 STEP에 반영합니다.\n\n**계약 확정 여부**\n이 API는 명세에 요청 또는 응답 스키마·성공 코드가 구체적으로 정의되지 않았습니다. 저장된 req/res의 필드명, 래퍼, 성공 코드는 사용 방법을 설명하기 위한 예시이며 확정 계약이 아닙니다.",
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
                 "auth": {
                   "type": "noauth"
                 },
@@ -9422,6 +10156,198 @@
               "header": [],
               "cookie": [],
               "body": ""
+            },
+            {
+              "name": "401 · UNAUTHENTICATED",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "JSON 응답 요청."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "description": "UTF-8 JSON 요청 본문."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "internal",
+                    "executions",
+                    "{{executionId}}",
+                    "events"
+                  ]
+                },
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"UNAUTHENTICATED\",\n    \"message\": \"웹쉘 서명을 확인할 수 없습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "403 · INTERNAL_NETWORK_ONLY",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "JSON 응답 요청."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "description": "UTF-8 JSON 요청 본문."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "internal",
+                    "executions",
+                    "{{executionId}}",
+                    "events"
+                  ]
+                },
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"INTERNAL_NETWORK_ONLY\",\n    \"message\": \"내부망에서만 가능한 기능입니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "409 · INVALID_STATE",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "JSON 응답 요청."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "description": "UTF-8 JSON 요청 본문."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "internal",
+                    "executions",
+                    "{{executionId}}",
+                    "events"
+                  ]
+                },
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"INVALID_STATE\",\n    \"message\": \"실행 중인 요청만 실행 결과를 반영할 수 있습니다\",\n    \"details\": {}\n  }\n}"
+            },
+            {
+              "name": "400 · VALIDATION_ERROR",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "description": "JSON 응답 요청."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "description": "UTF-8 JSON 요청 본문."
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "internal",
+                    "executions",
+                    "{{executionId}}",
+                    "events"
+                  ]
+                },
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"알 수 없는 이벤트 종류입니다: TASK_PAUSED\",\n    \"details\": {}\n  }\n}"
             }
           ]
         }

@@ -46,6 +46,8 @@ public class RequestPlanService {
     private final PlanRepository planRepository;
     private final PlanHashService planHashService;
     private final RequestStreamService requestStreamService;
+    // 제출 때 결재 문서 판을 같은 트랜잭션에서 만듦
+    private final ApprovalDocumentService approvalDocumentService;
 
     @Transactional
     public RequestStatusResponse retryAnalysis(UUID userId, UUID requestId) {
@@ -129,6 +131,7 @@ public class RequestPlanService {
 
         plan.assignHash(planHashService.hash(request, plan));
         request.submit();
+        approvalDocumentService.recordSubmission(request, plan);
         requestStreamService.publishTreeReplaced(request);
         return new SubmitResponse(request.getId(), request.getStatus(), plan.getId(), plan.getPlanHash(),
                 selfApprovableTaskIds(plan, request.getRequesterId()));

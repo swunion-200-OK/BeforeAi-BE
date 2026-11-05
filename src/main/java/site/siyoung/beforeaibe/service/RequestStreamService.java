@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import site.siyoung.beforeaibe.dto.request.ExecutionLogResponse;
+import site.siyoung.beforeaibe.dto.request.ProgressNodeResponse;
 import site.siyoung.beforeaibe.entity.Request;
 
 import java.io.IOException;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 public class RequestStreamService {
 
     static final String NODE_UPDATED = "node.updated";
+    static final String NODE_ADDED = "node.added";
     static final String TREE_REPLACED = "tree.replaced";
     static final String HEARTBEAT = "heartbeat";
     static final String LOG = "log";
@@ -71,6 +73,11 @@ public class RequestStreamService {
         return "approval:" + approvalId;
     }
 
+    // 작업 하나는 실행 세션에서 한 번 실행되므로 STEP 노드도 작업마다 하나 (웹쉘 콜백 TASK_* 이벤트로 만듦)
+    static String stepNodeId(UUID taskId) {
+        return "step:" + taskId;
+    }
+
     // 승인 대기 노드는 승인 기록이 없으므로 작업 id와 필요 승인권자 순번으로 id를 만듦
     static String pendingApprovalNodeId(UUID taskId, int index) {
         return "approval:pending:" + taskId + ":" + index;
@@ -99,6 +106,17 @@ public class RequestStreamService {
         UUID requestId = request.getId();
         afterCommit(() -> broadcast(progressEmitters, requestId,
                 SseEmitter.event().id(String.valueOf(version)).name(NODE_UPDATED).data(data)));
+    }
+
+    // 새 노드가 생김 → node.added (실행 단계 시작 등)
+    public void publishNodeAdded(Request request, String parentId, ProgressNodeResponse node) {
+        long version = request.increaseProgressVersion();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("parentId", parentId);
+        data.put("node", node);
+        UUID requestId = request.getId();
+        afterCommit(() -> broadcast(progressEmitters, requestId,
+                SseEmitter.event().id(String.valueOf(version)).name(NODE_ADDED).data(data)));
     }
 
     // Plan이 새로 생기거나 여러 노드가 한꺼번에 바뀜 → tree.replaced (클라이언트가 전체 트리를 다시 조회)

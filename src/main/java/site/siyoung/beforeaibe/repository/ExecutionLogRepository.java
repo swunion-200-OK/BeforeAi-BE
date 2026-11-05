@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import site.siyoung.beforeaibe.entity.ExecutionLog;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,4 +35,10 @@ public interface ExecutionLogRepository extends JpaRepository<ExecutionLog, UUID
                                      @Param("executionId") UUID executionId,
                                      @Param("sequence") long sequence,
                                      Limit limit);
+
+    // 같은 실행 세션에서 이미 받은 sequence인지 (웹쉘 콜백 재전송)
+    boolean existsByExecution_IdAndSequence(UUID executionId, long sequence);
+
+    // 진행 트리 STEP 노드의 logRange
+    List<ExecutionLog> findByTask_IdIn(Collection<UUID> taskIds);
 }
