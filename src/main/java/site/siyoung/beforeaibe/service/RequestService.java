@@ -16,6 +16,7 @@ import site.siyoung.beforeaibe.dto.request.RequestSummaryResponse;
 import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Project;
 import site.siyoung.beforeaibe.entity.Request;
+import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.User;
 import site.siyoung.beforeaibe.entity.enums.RequestSource;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
@@ -48,7 +49,7 @@ public class RequestService {
     // 분석이 처음 시작되므로 시도 횟수는 1부터 셈
     private static final int FIRST_ANALYSIS_ATTEMPT = 1;
     private static final Set<RequestStatus> CANCELABLE = EnumSet.of(
-            RequestStatus.REVIEWING, RequestStatus.PENDING_APPROVAL,
+            RequestStatus.ANALYSIS_FAILED, RequestStatus.REVIEWING, RequestStatus.PENDING_APPROVAL,
             RequestStatus.REAPPROVAL_REQUIRED, RequestStatus.VERIFICATION_FAILED);
 
     private final RequestRepository requestRepository;
@@ -58,6 +59,7 @@ public class RequestService {
     private final UserRepository userRepository;
     private final RequestStreamService requestStreamService;
     private final RequestAnalysisDispatcher analysisDispatcher;
+    private final RequestDetailHistoryService requestDetailHistoryService;
 
     @Transactional
     public RequestStatusResponse create(UUID userId, RequestCreateRequest request) {
@@ -113,12 +115,14 @@ public class RequestService {
         Request request = getViewableRequest(requestId, userId);
         User requester = findUser(request.getRequesterId());
         if (request.getCurrentPlanId() == null) {
-            return RequestDetailResponse.of(request, requester, null, List.of());
+            return RequestDetailResponse.of(request, requester, null, List.of(),
+                    requestDetailHistoryService.history(request, null));
         }
         Plan plan = getCurrentPlan(request);
         List<ApprovalResponse> approvals = approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())
                 .stream().map(ApprovalResponse::from).toList();
-        return RequestDetailResponse.of(request, requester, PlanResponse.from(plan), approvals);
+        return RequestDetailResponse.of(request, requester, PlanResponse.from(plan), approvals,
+                requestDetailHistoryService.history(request, plan));
     }
 
     // 외부망에서도 요청자가 취소할 수 있음. 실행 중(RUNNING)인 요청은 kill API로 중단함
@@ -172,6 +176,14 @@ public class RequestService {
         }
         return planRepository.findWithTasksById(request.getCurrentPlanId())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Plan을 찾을 수 없습니다"));
+    }
+
+    // 같은 트랜잭션에서 이미 읽은 Plan의 작업을 ID로 찾음
+    public Map<UUID, Task> getCurrentPlanTasksById(UUID planId) {
+        return planRepository.findWithTasksById(planId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Plan을 찾을 수 없습니다"))
+                .getTasks().stream()
+                .collect(Collectors.toMap(Task::getId, Function.identity()));
     }
 
     // 요청을 볼 수 있는 사람: ADMIN, 요청자, 프로젝트 담당 부서의 DEPT_MANAGER, 현재 Plan 작업의 승인 후보

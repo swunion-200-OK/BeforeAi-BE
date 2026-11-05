@@ -17,7 +17,10 @@ import site.siyoung.beforeaibe.repository.UserRepository;
 
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 // 역할별 대시보드 (3.9, ADM-06·DEP-01·EMP-02)
 // ADMIN: 전체·아무 부서·ME / DEPT_MANAGER: 소속 부서·ME / EMPLOYEE: ME. 역할보다 넓은 범위는 403
@@ -66,7 +69,27 @@ public class DashboardService {
         // 승인 대기 건수는 범위와 상관없이 "내가 승인해야 할" 작업 수
         long pendingApprovalCount = requestRepository.countPendingApprovalTasks(userId);
 
-        return DashboardResponse.of(scope, requestCount, pendingApprovalCount, riskCounts, statusCounts);
+        return DashboardResponse.of(scope, requestCount, pendingApprovalCount, riskCounts, statusCounts,
+                departmentStats(scope, departmentId));
+    }
+
+    // 전체 범위는 모든 부서, 부서 범위는 그 부서만. 개인 범위는 부서 집계가 없음
+    private List<DashboardResponse.DepartmentStat> departmentStats(Scope scope, UUID departmentId) {
+        if (scope == Scope.ME) {
+            return List.of();
+        }
+        Map<UUID, RequestRepository.DepartmentCount> counts = requestRepository.countByDepartment().stream()
+                .collect(Collectors.toMap(RequestRepository.DepartmentCount::getDepartmentId, Function.identity()));
+        return departmentRepository.findAll().stream()
+                .filter(department -> departmentId == null || department.getId().equals(departmentId))
+                .map(department -> {
+                    RequestRepository.DepartmentCount count = counts.get(department.getId());
+                    return new DashboardResponse.DepartmentStat(department.getId(), department.getName(),
+                            count == null ? 0 : count.getRequests(),
+                            count == null ? 0 : count.getPendingApprovals(),
+                            count == null ? 0 : count.getRunning());
+                })
+                .toList();
     }
 
     private Scope defaultScope(Role role) {

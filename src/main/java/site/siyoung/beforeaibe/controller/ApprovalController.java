@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import site.siyoung.beforeaibe.dto.approval.ChangeRequestCreateRequest;
+import site.siyoung.beforeaibe.dto.approval.ExecutionRetryResponse;
+import site.siyoung.beforeaibe.dto.request.RequestStatusResponse;
 import site.siyoung.beforeaibe.dto.approval.ApprovalContextResponse;
 import site.siyoung.beforeaibe.dto.approval.ApprovalSubmitRequest;
 import site.siyoung.beforeaibe.dto.approval.ApprovalSubmitResponse;
@@ -68,7 +71,26 @@ public class ApprovalController {
     @PostMapping("/requests/{requestId}/rejections")
     public RejectionResponse reject(@AuthenticationPrincipal AuthUser authUser,
                                     @PathVariable UUID requestId,
-                                    @Valid @RequestBody RejectionRequest request) {
-        return approvalService.reject(authUser.id(), requestId, request);
+                                    @Valid @RequestBody RejectionRequest request,
+                                    HttpServletRequest httpRequest) {
+        return approvalService.reject(authUser.id(), requestId, networkResolver.resolve(httpRequest), request);
+    }
+
+    // 승인자의 Plan 수정 요청 (내부망 전용)
+    @InternalNetworkOnly
+    @PostMapping("/requests/{requestId}/change-requests")
+    public RequestStatusResponse requestChanges(@AuthenticationPrincipal AuthUser authUser,
+                                                @PathVariable UUID requestId,
+                                                @Valid @RequestBody ChangeRequestCreateRequest request,
+                                                HttpServletRequest httpRequest) {
+        return approvalService.requestChanges(authUser.id(), requestId, networkResolver.resolve(httpRequest), request);
+    }
+
+    // 전량 승인 후 웹쉘 연결 실패로 멈춘 요청의 실행 재시도. 승인 제출과 같이 내부망 전용 작업은 외부망에서 막음
+    @PostMapping("/requests/{requestId}/execution")
+    public ExecutionRetryResponse retryExecution(@AuthenticationPrincipal AuthUser authUser,
+                                                 @PathVariable UUID requestId,
+                                                 HttpServletRequest httpRequest) {
+        return approvalService.retryExecution(authUser.id(), requestId, networkResolver.resolve(httpRequest));
     }
 }

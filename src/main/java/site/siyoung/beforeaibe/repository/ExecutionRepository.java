@@ -14,6 +14,8 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID> {
     // 킬 스위치 대상: 요청의 가장 최근 실행 세션 중 해당 상태인 것
     Optional<Execution> findFirstByRequest_IdAndStatusOrderByCreatedAtDesc(UUID requestId, ExecutionStatus status);
 
+    Optional<Execution> findFirstByRequest_IdAndKilledAtNotNullOrderByKilledAtDesc(UUID requestId);
+
     // 웹쉘 콜백·전사 중단 응답은 웹쉘이 발급한 executionId로 실행 세션을 가리킴
     Optional<Execution> findByWebshellExecutionId(UUID webshellExecutionId);
 

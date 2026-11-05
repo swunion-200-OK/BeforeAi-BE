@@ -16,6 +16,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmployeeNumber(String employeeNumber);
 
+    // 승인 후보 계산용
+    List<User> findByDepartmentIdAndActiveTrue(UUID departmentId);
+
+    List<User> findByDepartmentIdAndRoleAndActiveTrue(UUID departmentId, Role role);
+
+    List<User> findByRoleAndActiveTrue(Role role);
+
     boolean existsByEmployeeNumber(String employeeNumber);
 
     // 계정 목록 첫 페이지 (GET /admin/users?departmentId=&role=). 필터는 null이면 전체.
