@@ -56,4 +56,14 @@ public class SigningKey extends BaseTimeEntity {
         this.deviceName = deviceName;
         this.status = status;
     }
+
+    // 관리자 등록: 웹쉘 정책에 공개키가 반영됨 (ADM-09)
+    public void register() {
+        this.status = SigningKeyStatus.REGISTERED;
+    }
+
+    // 관리자 폐기: 웹쉘 정책에서 제거됨 (ADM-09)
+    public void revoke() {
+        this.status = SigningKeyStatus.REVOKED;
+    }
 }

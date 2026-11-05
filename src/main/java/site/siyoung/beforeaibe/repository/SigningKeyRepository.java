@@ -22,6 +22,19 @@ public interface SigningKeyRepository extends JpaRepository<SigningKey, UUID> {
 
     List<SigningKey> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Limit limit);
 
+    // 관리자 전체 공개키 목록 (최신순)
+    List<SigningKey> findByOrderByCreatedAtDescIdDesc(Limit limit);
+
+    // 관리자 목록 커서 다음 페이지 (전체 사용자 대상)
+    @Query("""
+            select k from SigningKey k
+            where (k.createdAt < :createdAt or (k.createdAt = :createdAt and k.id < :id))
+            order by k.createdAt desc, k.id desc
+            """)
+    List<SigningKey> findAllPageAfter(@Param("createdAt") Instant createdAt,
+                                      @Param("id") UUID id,
+                                      Limit limit);
+
     // 커서(마지막으로 받은 항목의 createdAt, id) 다음 페이지
     @Query("""
             select k from SigningKey k

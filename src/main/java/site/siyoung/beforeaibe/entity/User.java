@@ -73,6 +73,25 @@ public class User extends BaseTimeEntity {
         this.passwordChangeRequired = false;
     }
 
+    // 관리자 비밀번호 초기화: 새 초기 비밀번호를 발급하고 최초 로그인 시 변경을 다시 강제함 (ADM-01)
+    public void resetPassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.passwordChangeRequired = true;
+    }
+
+    // 관리자 계정 변경 (ADM-02). null로 들어온 항목은 변경하지 않는 PATCH 의미
+    public void updateByAdmin(Role role, UUID departmentId, Boolean active) {
+        if (role != null) {
+            this.role = role;
+        }
+        if (departmentId != null) {
+            this.departmentId = departmentId;
+        }
+        if (active != null) {
+            this.active = active;
+        }
+    }
+
     // 확인 전에는 다시 발급할 수 있도록 덮어씀. 등록 완료 후 재등록 차단은 서비스에서 함
     public void issueOtpSecret(String otpSecret) {
         this.otpSecret = otpSecret;

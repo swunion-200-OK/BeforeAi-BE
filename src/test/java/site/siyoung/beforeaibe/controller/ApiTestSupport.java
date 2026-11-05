@@ -55,6 +55,18 @@ final class ApiTestSupport {
                 .build());
     }
 
+    // 3.2 관리자 API 테스트용 ADMIN 계정. 비밀번호 변경이 필요 없는 활성 상태
+    static User saveAdmin(UserRepository userRepository, PasswordEncoder passwordEncoder, String employeeNumber) {
+        return userRepository.saveAndFlush(User.builder()
+                .employeeNumber(employeeNumber)
+                .passwordHash(passwordEncoder.encode(PASSWORD))
+                .name("관리자")
+                .role(Role.ADMIN)
+                .active(true)
+                .passwordChangeRequired(false)
+                .build());
+    }
+
     static String loginBody(String employeeNumber, String password) {
         return """
                 {"employeeNumber": "%s", "password": "%s"}
