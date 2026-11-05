@@ -43,7 +43,10 @@ class ApprovalTransactionServiceTest {
     private final WebshellClient webshellClient = mock(WebshellClient.class);
     private final ApprovalTransactionService service = new ApprovalTransactionService(
             requestService, requestRepository, approvalRepository, mock(SigningKeyRepository.class),
-            executionRepository, planHashService, requestStreamService, webshellClient, new ApprovalPolicy());
+            executionRepository, planHashService, requestStreamService, webshellClient, new ApprovalPolicy(),
+            mock(site.siyoung.beforeaibe.repository.RejectionRepository.class),
+            mock(site.siyoung.beforeaibe.repository.ApprovalChangeRequestRepository.class),
+            mock(site.siyoung.beforeaibe.repository.UserRepository.class));
 
     @Test
     void 승인_커밋_후_취소된_요청은_실행하지_않는다() {

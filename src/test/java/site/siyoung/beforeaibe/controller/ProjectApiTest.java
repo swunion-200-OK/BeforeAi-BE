@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static site.siyoung.beforeaibe.controller.ApiTestSupport.bearer;
@@ -244,5 +245,39 @@ class ProjectApiTest {
         } while (cursor != null);
 
         assertThat(ids).doesNotHaveDuplicates().containsAll(saved);
+    }
+
+    @Test
+    void 관리자가_담당자를_교체한다() throws Exception {
+        Project project = saveProject("owners-replace");
+        User newOwner = saveUser(userRepository, passwordEncoder, "EMP777", Role.EMPLOYEE, dev.getId());
+
+        mockMvc.perform(put("/api/v1/projects/{id}/owners", project.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token("ADMIN001")))
+                        .contentType("application/json")
+                        .content("""
+                                {"ownerIds": ["%s", "%s"]}""".formatted(owner1.getId(), newOwner.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.owners.length()").value(2))
+                .andExpect(jsonPath("$.owners[1].id").value(newOwner.getId().toString()));
+    }
+
+    @Test
+    void 담당자가_2명_미만이거나_권한이_없으면_교체할_수_없다() throws Exception {
+        Project project = saveProject("owners-invalid");
+
+        mockMvc.perform(put("/api/v1/projects/{id}/owners", project.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token("ADMIN001")))
+                        .contentType("application/json")
+                        .content("""
+                                {"ownerIds": ["%s"]}""".formatted(owner1.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("OWNER_MINIMUM"));
+        mockMvc.perform(put("/api/v1/projects/{id}/owners", project.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token("EMP001")))
+                        .contentType("application/json")
+                        .content("""
+                                {"ownerIds": ["%s", "%s"]}""".formatted(owner1.getId(), owner2.getId())))
+                .andExpect(status().isForbidden());
     }
 }

@@ -24,11 +24,15 @@ public class NetworkResolver {
     private final List<Cidr> internalCidrs;
     private final boolean trustProxyHeader;
     private final String trustedHeader;
+    // 콜백 TLS 포트는 프록시를 거치지 않으므로 헤더가 없어도 소켓 IP로 판별함. 꺼져 있으면 -1
+    private final int callbackPort;
 
     @Autowired
     public NetworkResolver(@Value("${network.internal-cidrs}") List<String> internalCidrs,
                            @Value("${network.trust-proxy-header:false}") boolean trustProxyHeader,
-                           @Value("${network.trusted-header:X-Access-Network}") String trustedHeader) {
+                           @Value("${network.trusted-header:X-Access-Network}") String trustedHeader,
+                           @Value("${webshell.callback-tls.enabled:false}") boolean callbackTlsEnabled,
+                           @Value("${webshell.callback-tls.port:-1}") int callbackPort) {
         this.internalCidrs = internalCidrs.stream()
                 .map(String::trim)
                 .filter(cidr -> !cidr.isEmpty())
@@ -36,15 +40,20 @@ public class NetworkResolver {
                 .toList();
         this.trustProxyHeader = trustProxyHeader;
         this.trustedHeader = trustedHeader;
+        this.callbackPort = callbackTlsEnabled ? callbackPort : -1;
+    }
+
+    public NetworkResolver(List<String> internalCidrs, boolean trustProxyHeader, String trustedHeader) {
+        this(internalCidrs, trustProxyHeader, trustedHeader, false, -1);
     }
 
     // 소켓 IP 전용(프록시 헤더 불신뢰) 생성자. 테스트·직접 접속 구성용.
     public NetworkResolver(List<String> internalCidrs) {
-        this(internalCidrs, false, "X-Access-Network");
+        this(internalCidrs, false, "X-Access-Network", false, -1);
     }
 
     public Network resolve(HttpServletRequest request) {
-        if (trustProxyHeader) {
+        if (trustProxyHeader && request.getLocalPort() != callbackPort) {
             String value = request.getHeader(trustedHeader);
             if (value != null && !value.isBlank()) {
                 return "internal".equalsIgnoreCase(value.trim()) ? Network.INTERNAL : Network.EXTERNAL;

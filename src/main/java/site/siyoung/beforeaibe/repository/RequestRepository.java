@@ -140,6 +140,28 @@ public interface RequestRepository extends JpaRepository<Request, UUID> {
             """, nativeQuery = true)
     long countPendingApprovalTasks(@Param("userId") UUID userId);
 
+    // 대시보드 부서별 집계: 부서마다 요청 수, 승인 대기 요청 수, 실행 중 요청 수
+    @Query("""
+            select p.department.id as departmentId,
+                   count(r) as requests,
+                   sum(case when r.status in ('PENDING_APPROVAL', 'REAPPROVAL_REQUIRED') then 1 else 0 end) as pendingApprovals,
+                   sum(case when r.status in ('RUNNING', 'ROLLING_BACK') then 1 else 0 end) as running
+            from Request r, Project p
+            where r.projectId = p.id
+            group by p.department.id
+            """)
+    List<DepartmentCount> countByDepartment();
+
+    interface DepartmentCount {
+        UUID getDepartmentId();
+
+        long getRequests();
+
+        long getPendingApprovals();
+
+        long getRunning();
+    }
+
     interface StatusCount {
         RequestStatus getStatus();
 

@@ -690,8 +690,8 @@ class RequestApiTest {
     }
 
     @Test
-    void 부분_완료가_아니면_실패_작업을_재시도할_수_없다() throws Exception {
-        Request request = saveRequest(RequestStatus.FAILED, codeTask(1, TaskStatus.FAILED));
+    void 부분_완료나_실패가_아니면_실패_작업을_재시도할_수_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.COMPLETED, codeTask(1, TaskStatus.SUCCEEDED));
 
         mockMvc.perform(post("/api/v1/requests/{id}/retry", request.getId()).with(internal())
                         .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
@@ -823,5 +823,93 @@ class RequestApiTest {
         mockMvc.perform(get("/api/v1/requests/{id}/progress", request.getId()).with(internal())
                         .header(HttpHeaders.AUTHORIZATION, token("EMP002")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 분석에_실패한_요청은_취소할_수_있다() throws Exception {
+        Request request = saveRequest(RequestStatus.ANALYSIS_FAILED, codeTask(1, TaskStatus.PENDING));
+
+        mockMvc.perform(post("/api/v1/requests/{id}/cancel", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"));
+    }
+
+    @Test
+    void 전체_실패한_요청을_재시도하면_성공하지_않은_작업으로_새_Plan을_만든다() throws Exception {
+        Request request = saveRequest(RequestStatus.FAILED,
+                codeTask(1, TaskStatus.FAILED), codeTask(2, TaskStatus.APPROVED), codeTask(3, TaskStatus.SUCCEEDED));
+
+        mockMvc.perform(post("/api/v1/requests/{id}/retry", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"));
+
+        assertThat(currentPlan(request.getId()).getTasks()).hasSize(2)
+                .allMatch(task -> task.getStatus() == TaskStatus.PENDING);
+    }
+
+    @Test
+    void UPDATE_지시와_답변은_재분석_입력으로_보관된다() throws Exception {
+        Request request = saveRequest(RequestStatus.REVIEWING, codeTask(1, TaskStatus.PENDING));
+        Plan plan = currentPlan(request.getId());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/v1/requests/{id}/plan", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001"))
+                        .contentType("application/json")
+                        .content("""
+                                {"basePlanId": "%s", "answer": "스테이징입니다",
+                                 "changes": [{"op": "UPDATE", "taskId": "%s", "instruction": "문구를 바꿔 주세요"}]}"""
+                                .formatted(plan.getId(), plan.getTasks().getFirst().getId())))
+                .andExpect(status().isAccepted());
+
+        assertThat(requestRepository.findById(request.getId()).orElseThrow().getReanalysisInput())
+                .contains("스테이징입니다", "문구를 바꿔 주세요", plan.getTasks().getFirst().getTitle());
+    }
+
+    @Test
+    void 상세는_직전_Plan과_달라진_작업과_빠진_작업을_돌려준다() throws Exception {
+        Request request = saveRequest(RequestStatus.REVIEWING, task("유지", "a", "same"), task("변경", "b", "before"), task("삭제", "c", "x"));
+        Plan revised = savePlan(request, task("유지", "a", "same"), task("변경", "b", "after"));
+        org.springframework.test.util.ReflectionTestUtils.setField(request, "currentPlanId", revised.getId());
+        requestRepository.saveAndFlush(request);
+        UUID changedId = currentPlan(request.getId()).getTasks().stream()
+                .filter(task -> task.getTitle().equals("변경")).findFirst().orElseThrow().getId();
+
+        mockMvc.perform(get("/api/v1/requests/{id}", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(jsonPath("$.changedTaskIds.length()").value(1))
+                .andExpect(jsonPath("$.changedTaskIds[0]").value(changedId.toString()))
+                .andExpect(jsonPath("$.removedTaskTitles[0]").value("삭제"));
+    }
+
+    private static Task task(String title, String target, String diff) {
+        return Task.builder().order(title.hashCode() & 0xffff).type(TaskType.CODE_FEATURE).risk(Risk.MEDIUM).title(title)
+                .target(target).content(new TaskContent(diff, null, null, null)).relatedDepartments(List.of())
+                .requiredApprovers(List.of(new RequiredApprover(ApproverRule.ANYONE, 1, null)))
+                .status(TaskStatus.PENDING).build();
+    }
+
+    @Test
+    void 부분_완료_재시도는_성공_이벤트가_유실된_작업을_다시_실행하지_않는다() throws Exception {
+        Request request = saveRequest(RequestStatus.PARTIALLY_COMPLETED,
+                codeTask(1, TaskStatus.FAILED), codeTask(2, TaskStatus.APPROVED), codeTask(3, TaskStatus.RUNNING));
+
+        mockMvc.perform(post("/api/v1/requests/{id}/retry", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk());
+
+        assertThat(currentPlan(request.getId()).getTasks()).hasSize(1);
+    }
+
+    @Test
+    void 승인_후보가_부족한_작업이_있으면_제출할_수_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.REVIEWING, deployTask(1, TaskStatus.PENDING, List.of()));
+
+        mockMvc.perform(post("/api/v1/requests/{id}/submit", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE"));
     }
 }

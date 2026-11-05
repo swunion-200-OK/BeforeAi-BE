@@ -4,6 +4,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.dto.approval.ChangeRequestCreateRequest;
+import site.siyoung.beforeaibe.dto.request.RequestStatusResponse;
+import site.siyoung.beforeaibe.entity.ApprovalChangeRequest;
+import site.siyoung.beforeaibe.entity.Rejection;
+import site.siyoung.beforeaibe.repository.ApprovalChangeRequestRepository;
+import site.siyoung.beforeaibe.repository.RejectionRepository;
+import site.siyoung.beforeaibe.repository.UserRepository;
 import site.siyoung.beforeaibe.dto.approval.ApprovalSubmitRequest;
 import site.siyoung.beforeaibe.dto.approval.RejectionRequest;
 import site.siyoung.beforeaibe.dto.approval.RejectionResponse;
@@ -56,6 +63,9 @@ public class ApprovalTransactionService {
     private final RequestStreamService requestStreamService;
     private final WebshellClient webshellClient;
     private final ApprovalPolicy approvalPolicy;
+    private final RejectionRepository rejectionRepository;
+    private final ApprovalChangeRequestRepository changeRequestRepository;
+    private final UserRepository userRepository;
 
     // 승인 서명 저장 + 작업 상태 전이 (한 트랜잭션). 전량 승인 여부를 ApproveResult로 돌려줌
     @Transactional
@@ -158,7 +168,7 @@ public class ApprovalTransactionService {
             result = webshellClient.submitExecution(new WebshellClient.ExecutionRequest(planPayload, approvalPayloads));
         } catch (WebshellClient.VerificationFailedException e) {
             // 웹쉘이 세션을 열지 않았으므로 Execution은 만들지 않고 요청만 검증 실패로 둠(커밋됨)
-            request.failVerification();
+            request.failVerification(e.getFailedChecks());
             requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                     request.getStatus().name());
             return request.getStatus();
@@ -185,7 +195,7 @@ public class ApprovalTransactionService {
     }
 
     @Transactional
-    public RejectionResponse reject(UUID userId, UUID requestId, RejectionRequest body) {
+    public RejectionResponse reject(UUID userId, UUID requestId, Network network, RejectionRequest body) {
         Request request = findForUpdate(requestId);
         if (!APPROVABLE.contains(request.getStatus())) {
             throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 거부할 수 있습니다");
@@ -196,10 +206,58 @@ public class ApprovalTransactionService {
         }
         List<Task> targets = resolveApprovableTargets(plan, body.taskIds(), userId);
         targets.forEach(task -> task.changeStatus(TaskStatus.REJECTED));
+        rejectionRepository.save(Rejection.builder()
+                .request(request)
+                .plan(plan)
+                .rejecter(userRepository.getReferenceById(userId))
+                .taskIds(body.taskIds())
+                .reason(body.reason() == null ? "" : body.reason())
+                .network(network)
+                .build());
         // 거부가 하나라도 생기면 요청 전체를 거부 상태로 둠(거부된 작업은 문서·실행에 반영하지 않음)
         request.reject();
         requestStreamService.publishTreeReplaced(request);
         return new RejectionResponse(request.getId(), request.getStatus());
+    }
+
+    // 승인자가 거부 대신 수정을 요청함. 요청자가 고쳐 다시 제출하도록 검토 단계로 되돌림.
+    // 작업을 고쳐 Plan이 바뀌면 지난 서명은 새 Plan에 쓰이지 않음
+    @Transactional
+    public RequestStatusResponse requestChanges(UUID userId, UUID requestId, Network network,
+                                                ChangeRequestCreateRequest body) {
+        Request request = findForUpdate(requestId);
+        if (!APPROVABLE.contains(request.getStatus())) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 수정을 요청할 수 있습니다");
+        }
+        Plan plan = requestService.getCurrentPlan(request);
+        if (!plan.getId().equals(body.planId())) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "현재 Plan이 아닙니다");
+        }
+        resolveApprovableTargets(plan, body.taskIds(), userId);
+        changeRequestRepository.save(ApprovalChangeRequest.builder()
+                .request(request)
+                .plan(plan)
+                .requestedBy(userRepository.getReferenceById(userId))
+                .taskIds(body.taskIds())
+                .reason(body.reason())
+                .network(network)
+                .build());
+        request.returnForChanges();
+        requestStreamService.publishTreeReplaced(request);
+        return RequestStatusResponse.from(request);
+    }
+
+    // 실행 재시도 전 검사. 볼 수 있는 사람만, 외부망이면 내부망 전용 작업이 없을 때만 허용하고 현재 Plan ID를 돌려줌
+    @Transactional(readOnly = true)
+    public UUID prepareExecutionRetry(UUID userId, UUID requestId, Network network) {
+        Request request = requestService.getViewableRequest(requestId, userId);
+        Plan plan = requestService.getCurrentPlan(request);
+        if (network == Network.EXTERNAL && plan.getTasks().stream()
+                .filter(task -> task.getRisk() != Risk.FORBIDDEN)
+                .anyMatch(approvalPolicy::internalOnly)) {
+            throw new ApiException(ErrorCode.INTERNAL_NETWORK_ONLY);
+        }
+        return plan.getId();
     }
 
     // 열람 후보에 없는 ANYONE 승인자도 제출할 수 있으므로, 인가는 resolveApprovableTargets에서 작업별로 검사함

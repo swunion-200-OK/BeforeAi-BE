@@ -192,6 +192,7 @@ class EditorApiTest {
         assertThat(plan.getTasks().getFirst().getType()).isEqualTo(TaskType.CODE_MINOR);
         assertThat(plan.getTasks().getFirst().getTarget()).isEqualTo("src/auth/session.ts");
         assertThat(plan.getTasks().getFirst().getContent().diff()).contains("+b");
+        assertThat(plan.getTasks().getFirst().getRequiredApprovers()).isNotEmpty();
     }
 
     @Test

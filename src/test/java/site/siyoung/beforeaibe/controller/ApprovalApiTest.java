@@ -151,6 +151,8 @@ class ApprovalApiTest {
             if (project != null) {
                 UUID projectId = project.getId();
                 jdbcTemplate.update("delete from executions where request_id in (select id from requests where project_id = ?)", projectId);
+                jdbcTemplate.update("delete from rejections where request_id in (select id from requests where project_id = ?)", projectId);
+                jdbcTemplate.update("delete from approval_change_requests where request_id in (select id from requests where project_id = ?)", projectId);
                 jdbcTemplate.update("delete from approvals where request_id in (select id from requests where project_id = ?)", projectId);
                 jdbcTemplate.update("update requests set current_plan_id = null where project_id = ?", projectId);
                 jdbcTemplate.update("delete from tasks where plan_id in (select p.id from plans p join requests r on r.id = p.request_id where r.project_id = ?)", projectId);
@@ -653,5 +655,132 @@ class ApprovalApiTest {
                         .content("{\"planId\": \"%s\", \"taskIds\": [\"%s\"]}".formatted(plan.getId(), taskId)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("INVALID_STATE"));
+    }
+
+    // --- 거부 사유 저장 ---
+
+    @Test
+    void 거부_사유가_저장되고_상세_응답에_나온다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                deployTask(1, TaskStatus.PENDING, List.of(candidate.getId())));
+        Plan plan = currentPlan(request.getId());
+        UUID taskId = plan.getTasks().getFirst().getId();
+
+        mockMvc.perform(post("/api/v1/requests/{id}/rejections", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "taskIds": ["%s"], "reason": "배포 일정과 충돌합니다."}"""
+                                .formatted(plan.getId(), taskId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/requests/{id}", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rejection.by").value(candidate.getName()))
+                .andExpect(jsonPath("$.rejection.reason").value("배포 일정과 충돌합니다."))
+                .andExpect(jsonPath("$.rejection.taskIds[0]").value(taskId.toString()))
+                .andExpect(jsonPath("$.events[-1].status").value("REJECTED"))
+                .andExpect(jsonPath("$.events[-1].by").value(candidate.getName()));
+    }
+
+    // --- POST /requests/{id}/execution ---
+
+    @Test
+    void 전량_승인_후_웹쉘_실패로_멈춘_요청은_재시도하면_실행된다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL, codeTask(1, TaskStatus.APPROVED));
+        Plan plan = currentPlan(request.getId());
+        UUID executionId = UUID.randomUUID();
+
+        willThrow(new site.siyoung.beforeaibe.exception.ApiException(
+                site.siyoung.beforeaibe.exception.ErrorCode.WEBSHELL_UNAVAILABLE))
+                .given(webshellClient).submitExecution(any());
+        mockMvc.perform(post("/api/v1/requests/{id}/execution", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"));
+        assertThat(requestRepository.findById(request.getId()).orElseThrow().getStatus())
+                .isEqualTo(RequestStatus.PENDING_APPROVAL);
+
+        org.mockito.Mockito.reset(webshellClient);
+        given(webshellClient.submitExecution(any())).willReturn(
+                new WebshellClient.ExecutionResult(executionId, "sha256:x", "RUNNING", "sig"));
+        mockMvc.perform(post("/api/v1/requests/{id}/execution", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.executionRequested").value(true));
+
+        // 이미 실행 중이면 웹쉘을 다시 부르지 않음
+        mockMvc.perform(post("/api/v1/requests/{id}/execution", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"));
+        then(webshellClient).should(org.mockito.Mockito.times(1)).submitExecution(any());
+    }
+
+    @Test
+    void 승인이_덜_모인_요청은_실행_재시도할_수_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL, codeTask(1, TaskStatus.PENDING));
+
+        mockMvc.perform(post("/api/v1/requests/{id}/execution", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE"));
+        then(webshellClient).should(never()).submitExecution(any());
+    }
+
+    @Test
+    void 외부망에서는_내부망_전용_작업이_있는_요청을_실행_재시도할_수_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                deployTask(1, TaskStatus.APPROVED, List.of(candidate.getId())));
+        String bearerToken = token("EMP001");
+
+        mockMvc.perform(post("/api/v1/requests/{id}/execution", request.getId()).with(external())
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("INTERNAL_NETWORK_ONLY"));
+        then(webshellClient).should(never()).submitExecution(any());
+    }
+
+    // --- POST /requests/{id}/change-requests ---
+
+    @Test
+    void 승인자가_수정을_요청하면_REVIEWING으로_돌아가고_상세에_사유가_나온다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                deployTask(1, TaskStatus.PENDING, List.of(candidate.getId())));
+        Plan plan = currentPlan(request.getId());
+        UUID taskId = plan.getTasks().getFirst().getId();
+
+        mockMvc.perform(post("/api/v1/requests/{id}/change-requests", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "taskIds": ["%s"], "reason": "배포 대상을 확인해 주세요."}"""
+                                .formatted(plan.getId(), taskId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REVIEWING"));
+
+        mockMvc.perform(get("/api/v1/requests/{id}", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(jsonPath("$.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.changeRequest.reason").value("배포 대상을 확인해 주세요."))
+                .andExpect(jsonPath("$.changeRequest.by").value(candidate.getName()));
+    }
+
+    @Test
+    void 승인_후보가_아니면_수정을_요청할_수_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                deployTask(1, TaskStatus.PENDING, List.of(candidate.getId())));
+        Plan plan = currentPlan(request.getId());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/change-requests", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP002"))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "taskIds": ["%s"], "reason": "확인"}"""
+                                .formatted(plan.getId(), plan.getTasks().getFirst().getId())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("NOT_APPROVER"));
     }
 }
