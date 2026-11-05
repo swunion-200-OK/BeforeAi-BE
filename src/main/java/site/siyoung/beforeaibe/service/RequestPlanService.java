@@ -101,14 +101,14 @@ public class RequestPlanService {
             }
         }
 
-        // UPDATE의 instruction과 answer는 재분석 입력. answer는 분석기가 읽도록 clarification에 담아 두고,
-        // 분석이 성공하면 Plan 생성 시점에 해소된다(되물음이 없으면 clarification은 유지되지 않음).
+        // answer는 재분석 입력으로 디스패처에 직접 넘기고, 되물음(clarification)은 명세대로 비운다.
+        String answer = hasAnswer ? patch.answer() : null;
         if (hasAnswer) {
-            request.askClarification(patch.answer());
+            request.clearClarification();
         }
         request.startReanalysis(planId);
-        // 커밋 후 비동기 재분석 시작
-        analysisDispatcher.dispatchAfterCommit(request.getId());
+        // 커밋 후 비동기 재분석 시작 (answer를 분석 입력으로 전달)
+        analysisDispatcher.dispatchAfterCommit(request.getId(), answer);
         if (planReplaced) {
             requestStreamService.publishTreeReplaced(request);
         } else {
