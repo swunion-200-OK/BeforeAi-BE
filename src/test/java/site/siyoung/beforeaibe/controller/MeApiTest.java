@@ -15,6 +15,7 @@ import site.siyoung.beforeaibe.TestcontainersConfiguration;
 import site.siyoung.beforeaibe.entity.User;
 import site.siyoung.beforeaibe.repository.UserRepository;
 
+import java.util.Base64;
 import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -215,6 +216,60 @@ class MeApiTest {
                 .andExpect(status().isBadRequest());
     }
 
+
+    @Test
+    void 다른_사용자가_이미_제출한_공개키는_제출할_수_없다() throws Exception {
+        saveUser(userRepository, passwordEncoder, "EMP001", false);
+        saveUser(userRepository, passwordEncoder, "EMP002", false);
+        String firstToken = json(loginInternal(mockMvc, "EMP001"), "$.accessToken");
+        String secondToken = json(loginInternal(mockMvc, "EMP002"), "$.accessToken");
+        String body = "{\"algorithm\": \"Ed25519\", \"publicKey\": \"%s\"}".formatted(ed25519PublicKey());
+
+        mockMvc.perform(post("/api/v1/me/signing-keys").with(internal()).header(HttpHeaders.AUTHORIZATION, bearer(firstToken))
+                        .contentType("application/json").content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/v1/me/signing-keys").with(internal()).header(HttpHeaders.AUTHORIZATION, bearer(secondToken))
+                        .contentType("application/json").content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void 패딩이_없거나_길이가_32바이트가_아닌_공개키와_긴_기기_이름은_400을_돌려준다() throws Exception {
+        saveUser(userRepository, passwordEncoder, "EMP001", false);
+        String token = json(loginInternal(mockMvc, "EMP001"), "$.accessToken");
+        String unpadded = ed25519PublicKey().replace("=", "");
+        String shortKey = Base64.getEncoder().encodeToString(new byte[31]);
+        String longKey = Base64.getEncoder().encodeToString(new byte[33]);
+
+        for (String publicKey : List.of(unpadded, shortKey, longKey)) {
+            mockMvc.perform(post("/api/v1/me/signing-keys").with(internal()).header(HttpHeaders.AUTHORIZATION, bearer(token))
+                            .contentType("application/json")
+                            .content("{\"algorithm\": \"Ed25519\", \"publicKey\": \"%s\"}".formatted(publicKey)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        }
+
+        mockMvc.perform(post("/api/v1/me/signing-keys").with(internal()).header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json")
+                        .content("{\"algorithm\": \"Ed25519\", \"publicKey\": \"%s\", \"deviceName\": \"%s\"}"
+                                .formatted(ed25519PublicKey(), "a".repeat(101))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void 외부망에서는_서명_공개키를_제출할_수_없다() throws Exception {
+        saveUser(userRepository, passwordEncoder, "EMP001", false);
+        String token = json(loginInternal(mockMvc, "EMP001"), "$.accessToken");
+
+        mockMvc.perform(post("/api/v1/me/signing-keys").with(external()).header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json")
+                        .content("{\"algorithm\": \"Ed25519\", \"publicKey\": \"%s\"}".formatted(ed25519PublicKey())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("INTERNAL_NETWORK_ONLY"));
+    }
 
     @Test
     void 내부망에서는_웹쉘_공개키와_지문을_받는다() throws Exception {

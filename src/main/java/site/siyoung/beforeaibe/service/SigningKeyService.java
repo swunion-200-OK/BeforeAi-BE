@@ -87,6 +87,10 @@ public class SigningKeyService {
             if (raw.length != ED25519_PUBLIC_KEY_BYTES) {
                 throw new IllegalArgumentException();
             }
+            // 디코더는 패딩 없는 값도 받아들이므로, 같은 키를 다른 표기로 내 전역 unique 검사를 피하지 못하게 표준 표기(패딩 포함 44자)만 허용
+            if (!Base64.getEncoder().encodeToString(raw).equals(publicKey)) {
+                throw new IllegalArgumentException();
+            }
             byte[] encoded = new byte[ED25519_X509_PREFIX.length + raw.length];
             System.arraycopy(ED25519_X509_PREFIX, 0, encoded, 0, ED25519_X509_PREFIX.length);
             System.arraycopy(raw, 0, encoded, ED25519_X509_PREFIX.length, raw.length);

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,6 +21,7 @@ import site.siyoung.beforeaibe.dto.admin.AdminSigningKeyView;
 import site.siyoung.beforeaibe.dto.admin.RegisterKeyRequest;
 import site.siyoung.beforeaibe.dto.admin.RegisterKeyResponse;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
+import site.siyoung.beforeaibe.security.AuthUser;
 import site.siyoung.beforeaibe.security.InternalNetworkOnly;
 import site.siyoung.beforeaibe.service.SigningKeyAdminService;
 
@@ -40,9 +42,10 @@ public class AdminSigningKeyController {
     }
 
     @PostMapping("/{keyId}/register")
-    public RegisterKeyResponse register(@PathVariable UUID keyId,
+    public RegisterKeyResponse register(@AuthenticationPrincipal AuthUser authUser,
+                                        @PathVariable UUID keyId,
                                         @Valid @RequestBody RegisterKeyRequest request) {
-        return signingKeyAdminService.register(keyId, request.adminProof());
+        return signingKeyAdminService.register(authUser.id(), keyId, request.adminProof());
     }
 
     @DeleteMapping("/{keyId}")

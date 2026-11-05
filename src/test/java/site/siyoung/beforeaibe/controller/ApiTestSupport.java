@@ -11,7 +11,10 @@ import site.siyoung.beforeaibe.entity.User;
 import site.siyoung.beforeaibe.entity.enums.Role;
 import site.siyoung.beforeaibe.repository.UserRepository;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.Signature;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
@@ -115,7 +118,23 @@ final class ApiTestSupport {
 
     // 기기에서 만든 것과 같은 형식의 Ed25519 raw 공개키(Base64)
     static String ed25519PublicKey() throws Exception {
-        byte[] encoded = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic().getEncoded();
+        return rawPublicKey(ed25519KeyPair());
+    }
+
+    static KeyPair ed25519KeyPair() throws Exception {
+        return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+    }
+
+    // 기기가 서버에 제출하는 형식: X.509 인코딩의 마지막 32바이트(raw 공개키)를 Base64로
+    static String rawPublicKey(KeyPair keyPair) {
+        byte[] encoded = keyPair.getPublic().getEncoded();
         return Base64.getEncoder().encodeToString(Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length));
+    }
+
+    static String sign(KeyPair keyPair, String message) throws Exception {
+        Signature signer = Signature.getInstance("Ed25519");
+        signer.initSign(keyPair.getPrivate());
+        signer.update(message.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(signer.sign());
     }
 }
