@@ -63,6 +63,7 @@ public class ApprovalTransactionService {
     private final RequestStreamService requestStreamService;
     private final WebshellClient webshellClient;
     private final ApprovalPolicy approvalPolicy;
+    private final RequestStatusEventPublisher requestStatusEventPublisher;
     private final RejectionRepository rejectionRepository;
     private final ApprovalChangeRequestRepository changeRequestRepository;
     private final UserRepository userRepository;
@@ -164,6 +165,7 @@ public class ApprovalTransactionService {
                 .toList();
 
         WebshellClient.ExecutionResult result;
+        RequestStatus previousStatus = request.getStatus();
         try {
             result = webshellClient.submitExecution(new WebshellClient.ExecutionRequest(planPayload, approvalPayloads));
         } catch (WebshellClient.VerificationFailedException e) {
@@ -171,6 +173,7 @@ public class ApprovalTransactionService {
             request.failVerification(e.getFailedChecks());
             requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                     request.getStatus().name());
+            requestStatusEventPublisher.publish(request, previousStatus, null);
             return request.getStatus();
         }
 
@@ -191,6 +194,7 @@ public class ApprovalTransactionService {
         }
         requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                 request.getStatus().name());
+        requestStatusEventPublisher.publish(request, previousStatus, null);
         return request.getStatus();
     }
 
@@ -215,8 +219,10 @@ public class ApprovalTransactionService {
                 .network(network)
                 .build());
         // 거부가 하나라도 생기면 요청 전체를 거부 상태로 둠(거부된 작업은 문서·실행에 반영하지 않음)
+        RequestStatus previousStatus = request.getStatus();
         request.reject();
         requestStreamService.publishTreeReplaced(request);
+        requestStatusEventPublisher.publish(request, previousStatus, userId);
         return new RejectionResponse(request.getId(), request.getStatus());
     }
 

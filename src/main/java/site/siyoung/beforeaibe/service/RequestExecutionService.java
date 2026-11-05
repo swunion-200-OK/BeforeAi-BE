@@ -45,6 +45,7 @@ public class RequestExecutionService {
     private final ExecutionLogRepository executionLogRepository;
     private final WebshellClient webshellClient;
     private final RequestStreamService requestStreamService;
+    private final RequestStatusEventPublisher requestStatusEventPublisher;
 
     // 승인 서명 없이 즉시 중단하며 외부망에서도 허용함 (API 명세서 4.6)
     @Transactional
@@ -62,6 +63,7 @@ public class RequestExecutionService {
         webshellClient.kill(execution.getWebshellExecutionId(), reason);
 
         execution.kill(reason);
+        RequestStatus previousStatus = request.getStatus();
         request.kill();
         List<UUID> skippedTaskIds = new ArrayList<>();
         for (Task task : execution.getPlan().getTasks()) {
@@ -71,6 +73,7 @@ public class RequestExecutionService {
             }
         }
         requestStreamService.publishTreeReplaced(request);
+        requestStatusEventPublisher.publish(request, previousStatus, userId);
         return new KillResponse(request.getId(), request.getStatus(), skippedTaskIds);
     }
 
