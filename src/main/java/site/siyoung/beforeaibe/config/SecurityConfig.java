@@ -60,6 +60,8 @@ public class SecurityConfig {
                         // 기존에 열려 있던 API 문서와 오류 페이지, 헬스체크(actuator)는 인증 없이 열어 둠
                         .requestMatchers("/error", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        // 관리자 전용 API (3.2). 내부망 여부는 컨트롤러의 @InternalNetworkOnly로 따로 검사
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(authenticationEntryPoint)
