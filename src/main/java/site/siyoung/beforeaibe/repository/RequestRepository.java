@@ -31,6 +31,21 @@ public interface RequestRepository extends JpaRepository<Request, UUID> {
             """, nativeQuery = true)
     List<UUID> findIdsByCurrentPlanCandidate(@Param("userId") UUID userId);
 
+    // 내 승인 대기 작업 목록(3.6 CORE-04)용: 승인 받을 수 있는 상태의 요청 중,
+    // 현재 Plan에 PENDING 작업이 있고 그 작업의 승인권자가 ANYONE이거나 후보에 내가 들어 있는 요청 (최신순)
+    @Query(value = """
+            select distinct r.* from requests r
+            join plans p on p.id = r.current_plan_id
+            join tasks t on t.plan_id = p.id
+            where r.status in ('PENDING_APPROVAL', 'REAPPROVAL_REQUIRED')
+              and t.status = 'PENDING'
+              and (t.required_approvers @> jsonb_build_array(jsonb_build_object('rule', 'ANYONE'))
+                   or t.required_approvers @> jsonb_build_array(
+                          jsonb_build_object('candidates', jsonb_build_array(cast(:userId as text)))))
+            order by r.created_at desc, r.id desc
+            """, nativeQuery = true)
+    List<Request> findPendingApprovalRequestsForApprover(@Param("userId") UUID userId);
+
     // 조회 범위: all이면 전체, 아니면 본인 요청·승인 후보인 요청·departmentId 부서 프로젝트의 요청.
     // requesterId·status·projectId가 null이면 해당 조건 없이 조회
     @Query("""

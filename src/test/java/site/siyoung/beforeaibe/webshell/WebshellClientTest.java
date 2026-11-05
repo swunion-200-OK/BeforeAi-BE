@@ -84,6 +84,28 @@ class WebshellClientTest {
     }
 
     @Test
+    void 실행_요청을_보내고_웹쉘_응답을_읽는다() {
+        responseStatus = 202;
+        responseBody = """
+                {"executionId": "%s", "planHash": "sha256:4be1", "status": "RUNNING", "webshellSignature": "c2ln"}
+                """.formatted(EXECUTION_ID);
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                java.util.Map.of("requestId", "r-1"),
+                java.util.List.of(new WebshellClient.ApprovalPayload(
+                        UUID.fromString("00000000-0000-0000-0000-0000000000a1"),
+                        new WebshellClient.ApprovalPayload.ApprovalEnvelope("HPKE", "ZW5j", "Y2lwaGVy"))));
+
+        WebshellClient.ExecutionResult result = client().submitExecution(request);
+
+        assertThat(receivedMethod).isEqualTo("POST");
+        assertThat(receivedPath).isEqualTo("/v1/executions");
+        assertThat(receivedContentType).startsWith("application/json");
+        assertThat(receivedBody).contains("\"requestId\":\"r-1\"").contains("\"keyId\"").contains("\"ciphertext\":\"Y2lwaGVy\"");
+        assertThat(result).isEqualTo(
+                new WebshellClient.ExecutionResult(EXECUTION_ID, "sha256:4be1", "RUNNING", "c2ln"));
+    }
+
+    @Test
     void 웹쉘이_오류로_응답하면_502_WEBSHELL_UNAVAILABLE이다() {
         responseStatus = 500;
         responseBody = "{}";
