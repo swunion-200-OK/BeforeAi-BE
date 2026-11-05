@@ -40,7 +40,7 @@ class DemoAnalysisCacheTest {
         assertThat(result.tasks()).extracting(AiTask::type, AiTask::risk)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(TaskType.DOC, Risk.LOW));
         assertThat(result.tasks().getFirst().target()).isEqualTo("docs/incident-guide.md");
-        assertThat(result.tasks().getFirst().body()).startsWith("# 장애 대응 절차");
+        assertThat(result.tasks().getFirst().body()).startsWith("# 장애 대응 가이드");
         assertThat(result.tasks().getFirst().explanation().summary()).isNotBlank();
     }
 
