@@ -18,8 +18,8 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
     List<DocumentVersion> findByDocument_IdAndVersionLessThanOrderByVersionDesc(UUID documentId, int version,
                                                                                  Limit limit);
 
-    // 이 요청이 처음 만든 버전. 그 직전 버전이 작업 문서 diff의 기준이 됨
-    Optional<DocumentVersion> findFirstByDocument_IdAndRequest_IdOrderByVersionAsc(UUID documentId, UUID requestId);
+    // 이 요청이 만든 버전들. 작업이 만든 버전을 찾아 그 직전 버전을 작업 문서 diff의 기준으로 삼음
+    List<DocumentVersion> findByDocument_IdAndRequest_IdOrderByVersionDesc(UUID documentId, UUID requestId);
 
     // 주어진 버전 바로 앞의 버전 (번호가 비어 있어도 찾을 수 있도록 LessThan으로 조회)
     Optional<DocumentVersion> findFirstByDocument_IdAndVersionLessThanOrderByVersionDesc(UUID documentId, int version);

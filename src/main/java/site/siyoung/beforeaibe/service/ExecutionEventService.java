@@ -53,6 +53,7 @@ public class ExecutionEventService {
     private final RequestStreamService requestStreamService;
     private final RequestStatusEventPublisher requestStatusEventPublisher;
     private final AuditWriter auditWriter;
+    private final DocumentPublishService documentPublishService;
 
     @Transactional
     public void receive(UUID webshellExecutionId, ExecutionEventRequest body) {
@@ -163,6 +164,10 @@ public class ExecutionEventService {
             throw new ApiException(ErrorCode.INVALID_STATE, "현재 작업 상태에서 받을 수 없는 이벤트입니다");
         }
         task.changeStatus(next);
+        if (next == TaskStatus.SUCCEEDED) {
+            // 같은 트랜잭션에서 문서 버전을 쌓음. 재전송 이벤트는 위에서 걸러져 두 번 저장되지 않음
+            documentPublishService.publish(request, task);
+        }
         requestStreamService.publishNodeUpdated(request, taskNodeId(task.getId()), next.name());
 
         String stepId = stepNodeId(execution.getId(), task.getId());

@@ -13,6 +13,7 @@ import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.User;
 import site.siyoung.beforeaibe.entity.enums.ExecutionEventType;
+import site.siyoung.beforeaibe.entity.enums.ExecutionStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskStatus;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.repository.ApprovalRepository;
@@ -147,6 +148,10 @@ public class RequestProgressService {
             String stepId = stepNodeId(event.getExecution().getId(), taskId);
             StepState state = steps.computeIfAbsent(stepId, id -> new StepState(taskId));
             state.apply(ExecutionEventType.valueOf(event.getType()), event.getData(), tasksById.get(taskId));
+            // 중단된 실행 세션은 종료 이벤트가 오지 않으므로 진행 중이던 STEP을 실패로 닫음
+            if (event.getExecution().getStatus() == ExecutionStatus.KILLED && state.running()) {
+                state.status = TaskStatus.FAILED;
+            }
         }
 
         Map<UUID, List<ProgressNodeResponse>> result = new LinkedHashMap<>();
