@@ -35,6 +35,8 @@ dependencies {
         // QR 이미지는 만들지 않고 otpauth URI만 내려 주므로 zxing은 제외
         exclude group: 'com.google.zxing'
     }
+    // 감사 로그 XLSX 내보내기 (CORE-13). 쓰기만 하므로 Apache POI 대신 가벼운 쓰기 전용 라이브러리 사용
+    implementation 'org.dhatim:fastexcel:0.18.4'
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     runtimeOnly 'org.postgresql:postgresql'

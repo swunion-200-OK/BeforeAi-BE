@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
+import site.siyoung.beforeaibe.entity.enums.Risk;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -91,4 +92,63 @@ public interface RequestRepository extends JpaRepository<Request, UUID> {
                                 @Param("createdAt") Instant createdAt,
                                 @Param("id") UUID id,
                                 Limit limit);
+
+    // 대시보드(3.9) 집계 범위: departmentId가 있으면 그 부서 프로젝트의 요청, requesterId가 있으면 그 사람이 요청한 요청,
+    // 둘 다 null이면 전체
+    @Query("""
+            select count(r) from Request r
+            where (:departmentId is null
+                   or r.projectId in (select p.id from Project p where p.department.id = :departmentId))
+              and (:requesterId is null or r.requesterId = :requesterId)
+            """)
+    long countInScope(@Param("departmentId") UUID departmentId, @Param("requesterId") UUID requesterId);
+
+    @Query("""
+            select r.status as status, count(r) as total from Request r
+            where (:departmentId is null
+                   or r.projectId in (select p.id from Project p where p.department.id = :departmentId))
+              and (:requesterId is null or r.requesterId = :requesterId)
+            group by r.status
+            """)
+    List<StatusCount> countByStatusInScope(@Param("departmentId") UUID departmentId,
+                                           @Param("requesterId") UUID requesterId);
+
+    // 범위 안 요청들의 현재 Plan 작업 수를 위험도별로 셈
+    @Query("""
+            select t.risk as risk, count(t) as total from Task t
+            where t.plan.id in (
+                    select r.currentPlanId from Request r
+                    where (:departmentId is null
+                           or r.projectId in (select p.id from Project p where p.department.id = :departmentId))
+                      and (:requesterId is null or r.requesterId = :requesterId))
+            group by t.risk
+            """)
+    List<RiskCount> countCurrentTasksByRiskInScope(@Param("departmentId") UUID departmentId,
+                                                   @Param("requesterId") UUID requesterId);
+
+    // 내가 승인해야 할 대기 작업 수(3.9 대시보드). 3.6 내 승인 대기 목록(findPendingApprovalRequestsForApprover +
+    // ApprovalPolicy.isApprover)과 같은 기준이라 목록의 작업 수와 같음: 승인 받을 수 있는 상태의 요청에서
+    // 현재 Plan의 PENDING 작업 중 승인권자가 ANYONE이거나 후보에 내가 들어 있는 것
+    @Query(value = """
+            select count(*) from tasks t
+            join requests r on r.current_plan_id = t.plan_id
+            where r.status in ('PENDING_APPROVAL', 'REAPPROVAL_REQUIRED')
+              and t.status = 'PENDING'
+              and (t.required_approvers @> jsonb_build_array(jsonb_build_object('rule', 'ANYONE'))
+                   or t.required_approvers @> jsonb_build_array(
+                          jsonb_build_object('candidates', jsonb_build_array(cast(:userId as text)))))
+            """, nativeQuery = true)
+    long countPendingApprovalTasks(@Param("userId") UUID userId);
+
+    interface StatusCount {
+        RequestStatus getStatus();
+
+        long getTotal();
+    }
+
+    interface RiskCount {
+        Risk getRisk();
+
+        long getTotal();
+    }
 }
