@@ -44,6 +44,7 @@ class ApprovalTransactionServiceTest {
     private final ApprovalTransactionService service = new ApprovalTransactionService(
             requestService, requestRepository, approvalRepository, mock(SigningKeyRepository.class),
             executionRepository, planHashService, requestStreamService, webshellClient, new ApprovalPolicy(),
+            mock(RequestStatusEventPublisher.class),
             mock(site.siyoung.beforeaibe.repository.RejectionRepository.class),
             mock(site.siyoung.beforeaibe.repository.ApprovalChangeRequestRepository.class),
             mock(site.siyoung.beforeaibe.repository.UserRepository.class));

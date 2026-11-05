@@ -50,6 +50,7 @@ public class ExecutionEventService {
     private final ExecutionLogRepository executionLogRepository;
     private final RequestRepository requestRepository;
     private final RequestStreamService requestStreamService;
+    private final RequestStatusEventPublisher requestStatusEventPublisher;
 
     @Transactional
     public void receive(UUID webshellExecutionId, ExecutionEventRequest body) {
@@ -175,6 +176,7 @@ public class ExecutionEventService {
             throw new ApiException(ErrorCode.INVALID_STATE, "종료 이벤트를 받지 않은 작업이 있습니다");
         }
         execution.changeStatus(finalStatus);
+        RequestStatus previousStatus = request.getStatus();
         request.finishExecution(requestStatus(execution.getPlan().getKind(), finalStatus));
         for (Task task : execution.getPlan().getTasks()) {
             if (NOT_STARTED.contains(task.getStatus())) {
@@ -182,6 +184,7 @@ public class ExecutionEventService {
             }
         }
         requestStreamService.publishTreeReplaced(request);
+        requestStatusEventPublisher.publish(request, previousStatus, null);
     }
 
     private static ExecutionStatus parseFinalStatus(Object value) {
