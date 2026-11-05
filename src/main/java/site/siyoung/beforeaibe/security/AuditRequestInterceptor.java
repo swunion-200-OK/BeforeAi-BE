@@ -51,6 +51,12 @@ public class AuditRequestInterceptor implements HandlerInterceptor {
         }
 
         String method = request.getMethod();
+        // 화면을 열 때마다 쌓이는 성공한 조회가 제출·승인 같은 변경 기록을 묻으므로 남기지 않음. 실패한 조회는 남김
+        boolean read = "GET".equals(method) || "HEAD".equals(method);
+        if (read && status < 400 && ex == null) {
+            return;
+        }
+
         String pattern = routeTemplate(request);
         // 실패 상태(4xx/5xx)는 action 끝에 _FAILED를 붙여 내보내기 성공/실패 판정과 맞춘다
         String action = truncate(method + " " + pattern + (status >= 400 ? "_FAILED" : ""));
