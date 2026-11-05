@@ -8,6 +8,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -39,11 +40,17 @@ import site.siyoung.beforeaibe.repository.PlanRepository;
 import site.siyoung.beforeaibe.repository.ProjectRepository;
 import site.siyoung.beforeaibe.repository.RequestRepository;
 import site.siyoung.beforeaibe.repository.UserRepository;
+import site.siyoung.beforeaibe.service.AuditWriter;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.x509;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -95,6 +102,10 @@ class InternalExecutionApiTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    // @Transactional 테스트는 커밋하지 않아 afterCommit이 실행되지 않으므로 호출만 검증함
+    @MockitoSpyBean
+    private AuditWriter auditWriter;
 
     private Project project;
     private User requester;
@@ -190,6 +201,107 @@ class InternalExecutionApiTest {
 
     private Plan plan(Execution execution) {
         return planRepository.findWithTasksById(execution.getPlan().getId()).orElseThrow();
+    }
+
+    // --- 감사 기록 ---
+
+    private void verifyAudit(String action, Execution execution, List<UUID> taskIds, String eventId, String type) {
+        verify(auditWriter).recordAfterCommit(eq(null), eq(action), eq(execution.getRequest().getId()),
+                eq(taskIds), eq(null), eq(null),
+                eq(java.util.Map.of("eventId", eventId, "type", type,
+                        "executionId", execution.getWebshellExecutionId().toString())));
+    }
+
+    @Test
+    void 작업_성공과_실패_이벤트는_감사_기록을_남긴다() throws Exception {
+        Execution execution = saveRunningExecution(TaskStatus.APPROVED, TaskStatus.APPROVED);
+        UUID first = taskId(execution, 0);
+        UUID second = taskId(execution, 1);
+        UUID successId = UUID.randomUUID();
+        UUID failId = UUID.randomUUID();
+
+        send(execution, event(successId, "TASK_SUCCEEDED", execution, first, "{\"message\": \"비밀 내용\"}"),
+                internal(), webshell()).andExpect(status().isNoContent());
+        send(execution, event(failId, "TASK_FAILED", execution, second, "{}"), internal(), webshell())
+                .andExpect(status().isNoContent());
+
+        verifyAudit("TASK_SUCCEEDED", execution, List.of(first), successId.toString(), "TASK_SUCCEEDED");
+        verifyAudit("TASK_FAILED", execution, List.of(second), failId.toString(), "TASK_FAILED");
+    }
+
+    @Test
+    void 검증_경보와_정책_불일치_경보는_감사_기록을_남긴다() throws Exception {
+        Execution execution = saveRunningExecution(TaskStatus.RUNNING);
+        UUID alertId = UUID.randomUUID();
+        UUID mismatchId = UUID.randomUUID();
+
+        send(execution, event(alertId, "VERIFICATION_ALERT", execution, null, "{\"reason\": \"hash\"}"),
+                internal(), webshell()).andExpect(status().isNoContent());
+        send(execution, event(mismatchId, "POLICY_MISMATCH", execution, null, "{}"), internal(), webshell())
+                .andExpect(status().isNoContent());
+
+        verifyAudit("VERIFICATION_FAILED", execution, List.of(), alertId.toString(), "VERIFICATION_ALERT");
+        verifyAudit("POLICY_MISMATCH", execution, List.of(), mismatchId.toString(), "POLICY_MISMATCH");
+    }
+
+    @Test
+    void 롤백_Plan_종료_이벤트는_결과에_따라_감사_기록을_남긴다() throws Exception {
+        Execution succeeded = saveExecution(RequestStatus.ROLLING_BACK, PlanKind.ROLLBACK, ExecutionStatus.RUNNING,
+                TaskStatus.SUCCEEDED);
+        UUID succeededEventId = UUID.randomUUID();
+        send(succeeded, event(succeededEventId, "EXECUTION_FINISHED", succeeded, null,
+                "{\"status\": \"COMPLETED\"}"), internal(), webshell()).andExpect(status().isNoContent());
+        verifyAudit("ROLLBACK_SUCCEEDED", succeeded, List.of(), succeededEventId.toString(), "EXECUTION_FINISHED");
+
+        Execution failed = saveExecution(RequestStatus.ROLLING_BACK, PlanKind.ROLLBACK, ExecutionStatus.RUNNING,
+                TaskStatus.FAILED);
+        UUID failedEventId = UUID.randomUUID();
+        send(failed, event(failedEventId, "EXECUTION_FINISHED", failed, null, "{\"status\": \"FAILED\"}"),
+                internal(), webshell()).andExpect(status().isNoContent());
+        verifyAudit("ROLLBACK_FAILED", failed, List.of(), failedEventId.toString(), "EXECUTION_FINISHED");
+    }
+
+    @Test
+    void 일반_Plan_종료_이벤트와_시작_로그_이벤트는_감사_기록을_남기지_않는다() throws Exception {
+        Execution execution = saveRunningExecution(TaskStatus.APPROVED);
+        UUID taskId = taskId(execution, 0);
+
+        send(execution, event(UUID.randomUUID(), "TASK_STARTED", execution, taskId, "{}"), internal(), webshell())
+                .andExpect(status().isNoContent());
+        send(execution, event(UUID.randomUUID(), "LOG", execution, taskId,
+                "{\"sequence\": 1, \"message\": \"로그\"}"), internal(), webshell())
+                .andExpect(status().isNoContent());
+        send(execution, event(UUID.randomUUID(), "TASK_SUCCEEDED", execution, taskId, "{}"), internal(), webshell())
+                .andExpect(status().isNoContent());
+        send(execution, event(UUID.randomUUID(), "EXECUTION_FINISHED", execution, null,
+                "{\"status\": \"COMPLETED\"}"), internal(), webshell()).andExpect(status().isNoContent());
+
+        // 성공 이벤트 한 번만 기록됨
+        verify(auditWriter, times(1)).recordAfterCommit(any(), any(), any(), any(), any(), any(), any());
+        verify(auditWriter, never()).recordAfterCommit(any(), eq("ROLLBACK_SUCCEEDED"), any(), any(), any(), any(),
+                any());
+    }
+
+    @Test
+    void 같은_eventId를_다시_보내면_감사_기록은_한_번만_남는다() throws Exception {
+        Execution execution = saveRunningExecution(TaskStatus.APPROVED);
+        String body = event(UUID.randomUUID(), "TASK_SUCCEEDED", execution, taskId(execution, 0), "{}");
+
+        send(execution, body, internal(), webshell()).andExpect(status().isNoContent());
+        send(execution, body, internal(), webshell()).andExpect(status().isNoContent());
+
+        verify(auditWriter, times(1)).recordAfterCommit(any(), eq("TASK_SUCCEEDED"), any(), any(), any(), any(),
+                any());
+    }
+
+    @Test
+    void 처리에_실패한_이벤트는_감사_기록을_남기지_않는다() throws Exception {
+        Execution execution = saveRunningExecution(TaskStatus.SUCCEEDED);
+
+        send(execution, event(UUID.randomUUID(), "TASK_SUCCEEDED", execution, taskId(execution, 0), "{}"),
+                internal(), webshell()).andExpect(status().isConflict());
+
+        verify(auditWriter, never()).recordAfterCommit(any(), any(), any(), any(), any(), any(), any());
     }
 
     // --- 인증 ---

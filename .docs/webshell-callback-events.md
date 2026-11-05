@@ -85,3 +85,17 @@
 
 - `POST /v1/executions`가 `403`이고 본문 `error.code`가 `VERIFICATION_FAILED`일 때만 요청을 `VERIFICATION_FAILED`로 바꿉니다. 코드가 다른 `403`은 연결 실패와 같이 `502 WEBSHELL_UNAVAILABLE`로 처리해 재시도할 수 있게 둡니다.
 - `POST /v1/kill-all` 응답의 `executionIds`에 있는 실행 세션은 바로 `KILLED`로 반영합니다(문서 롤백 실행 포함).
+
+## 6. 감사 로그 기록
+
+웹쉘 콜백 경로는 감사 인터셉터 대상이 아니므로 이벤트를 처리한 트랜잭션이 커밋된 뒤에 서버가 직접 기록합니다(롤백·재전송·오류 응답은 기록하지 않음). 행위자·접속 환경·IP는 비우고 요청 ID를 연결하며, `detail`에는 `eventId`·`type`·`executionId`만 넣고 `data` 원문은 넣지 않습니다.
+
+| 이벤트 | 감사 `action` |
+|---|---|
+| `TASK_SUCCEEDED` / `TASK_FAILED` | 같은 이름 (`taskIds`에 작업 ID) |
+| `VERIFICATION_ALERT` | `VERIFICATION_FAILED` |
+| `POLICY_MISMATCH` | `POLICY_MISMATCH` |
+| `EXECUTION_FINISHED` (롤백 Plan) | `COMPLETED`면 `ROLLBACK_SUCCEEDED`, 그 밖은 `ROLLBACK_FAILED` |
+| `EXECUTION_FINISHED` (일반 Plan), `TASK_STARTED`, `LOG` | 기록 없음 |
+
+실행 시작(`EXECUTION_STARTED`)과 `POST /v1/executions`의 검증 실패(`VERIFICATION_FAILED`)는 웹 서비스가 웹쉘을 호출하는 쪽에서 같은 방식으로 기록합니다.

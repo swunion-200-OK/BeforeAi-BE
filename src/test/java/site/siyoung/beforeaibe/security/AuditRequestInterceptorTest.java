@@ -28,8 +28,12 @@ class AuditRequestInterceptorTest {
     }
 
     private void complete(String method, int status, Exception ex) {
-        MockHttpServletRequest request = new MockHttpServletRequest(method, "/api/v1/requests");
-        request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/v1/requests");
+        complete(method, "/api/v1/requests", status, ex);
+    }
+
+    private void complete(String method, String path, int status, Exception ex) {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, path);
         MockHttpServletResponse response = new MockHttpServletResponse();
         response.setStatus(status);
         interceptor.afterCompletion(request, response, new Object(), ex);
@@ -73,13 +77,36 @@ class AuditRequestInterceptorTest {
     void 성공한_변경_요청은_기록한다() {
         complete("POST", 201, null);
 
-        assertThat(recordedAction()).isEqualTo("POST /api/v1/requests");
+        assertThat(recordedAction()).isEqualTo("REQUEST_CREATED");
     }
 
     @Test
     void 실패한_변경_요청은_FAILED로_기록한다() {
         complete("POST", 409, null);
 
-        assertThat(recordedAction()).isEqualTo("POST /api/v1/requests_FAILED");
+        assertThat(recordedAction()).isEqualTo("REQUEST_CREATED_FAILED");
+    }
+
+    @Test
+    void 매핑이_없는_경로는_METHOD_경로_그대로_기록한다() {
+        complete("POST", "/api/v1/requests/{requestId}/execution", 200, null);
+
+        assertThat(recordedAction()).isEqualTo("POST /api/v1/requests/{requestId}/execution");
+    }
+
+    @Test
+    void 긴_경로가_실패해도_FAILED_접미사는_보존된다() {
+        // "POST " + 44자 = 49자. 접미사를 붙이면 56자라 본문이 잘려야 한다
+        complete("POST", "/api/v1/" + "a".repeat(36), 500, null);
+
+        String action = recordedAction();
+        assertThat(action).endsWith("_FAILED").hasSizeLessThanOrEqualTo(50);
+    }
+
+    @Test
+    void 긴_경로가_성공하면_50자_이하로_잘린다() {
+        complete("POST", "/api/v1/" + "a".repeat(80), 200, null);
+
+        assertThat(recordedAction()).hasSize(50).startsWith("POST /api/v1/");
     }
 }

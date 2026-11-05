@@ -97,6 +97,7 @@ class AuditExportApiTest {
     private Department dev;
     private User me;
     private Request myRequest;
+    private Project project;
 
     private final Map<String, String> tokens = new HashMap<>();
 
@@ -107,7 +108,7 @@ class AuditExportApiTest {
         saveUser(userRepository, passwordEncoder, "EMP002", Role.EMPLOYEE, dev.getId());
         saveUser(userRepository, passwordEncoder, "MGR001", Role.DEPT_MANAGER, dev.getId());
         saveUser(userRepository, passwordEncoder, "ADMIN001", Role.ADMIN, null);
-        Project project = projectRepository.saveAndFlush(Project.builder()
+        project = projectRepository.saveAndFlush(Project.builder()
                 .name("인증 서비스").department(dev).repository("git@internal:auth-service.git").build());
         myRequest = requestRepository.saveAndFlush(Request.builder()
                 .projectId(project.getId()).requesterId(me.getId()).prompt("작업 요청")
@@ -272,6 +273,24 @@ class AuditExportApiTest {
         assertThat(csv).contains("2026-11-04 12:12:09,홍길동,개발팀,VERIFICATION_FAILED,인증 서비스,"
                 + myRequest.getId() + ",261514d6-cf26-5489-a9a8-7cbc6bd60839,INTERNAL,100.64.0.10,실패,"
                 + "\"{\"\"failedChecks\"\":[\"\"NONCE_ALREADY_USED\"\"]}\"\r\n");
+    }
+
+    @Test
+    void 웹쉘_경보_POLICY_MISMATCH는_결과가_실패로_나온다() throws Exception {
+        auditLogRepository.saveAndFlush(AuditLog.builder()
+                .actor(me).action("POLICY_MISMATCH").department(dev).project(project).request(myRequest)
+                .taskIds(List.of()).network(Network.INTERNAL).ip("100.64.0.10")
+                .detail(Map.of()).build());
+        UUID exportId = startExport("EMP001", "{\"format\": \"CSV\"}");
+        generate(exportId, new AuditLogService.Scope(null, me.getId()));
+
+        MvcResult file = mockMvc.perform(get("/api/v1/audit-logs/exports/{id}/file", exportId).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String csv = new String(file.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
+        assertThat(csv).contains(",POLICY_MISMATCH,인증 서비스," + myRequest.getId() + ",,INTERNAL,100.64.0.10,실패,");
     }
 
     @Test
