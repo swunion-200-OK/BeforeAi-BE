@@ -31,6 +31,8 @@ class WebshellClientTest {
     private String responseBody;
     private String receivedMethod;
     private String receivedPath;
+    private String receivedQuery;
+    private String receivedRawQuery;
     private String receivedContentType;
     private String receivedBody;
 
@@ -40,6 +42,8 @@ class WebshellClientTest {
         server.createContext("/", exchange -> {
             receivedMethod = exchange.getRequestMethod();
             receivedPath = exchange.getRequestURI().getPath();
+            receivedQuery = exchange.getRequestURI().getQuery();
+            receivedRawQuery = exchange.getRequestURI().getRawQuery();
             receivedContentType = exchange.getRequestHeaders().getFirst("Content-Type");
             receivedBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
@@ -103,6 +107,74 @@ class WebshellClientTest {
         assertThat(receivedBody).contains("\"requestId\":\"r-1\"").contains("\"keyId\"").contains("\"ciphertext\":\"Y2lwaGVy\"");
         assertThat(result).isEqualTo(
                 new WebshellClient.ExecutionResult(EXECUTION_ID, "sha256:4be1", "RUNNING", "c2ln"));
+    }
+
+    @Test
+    void 파일_목록은_경로와_ref를_전달하고_항목을_읽는다() {
+        responseStatus = 200;
+        responseBody = """
+                {"baseCommit": "abc123", "path": "src/한글 폴더",
+                 "items": [{"name": "login.ts", "path": "src/한글 폴더/login.ts", "type": "file"}]}
+                """;
+
+        WebshellClient.FileListResult result = client().listFiles(
+                "git@internal:auth-service.git", "src/한글 폴더", "feature/login");
+
+        assertThat(receivedMethod).isEqualTo("GET");
+        assertThat(receivedPath).isEqualTo("/v1/repos/files");
+        assertThat(receivedQuery).isEqualTo(
+                "repository=git@internal:auth-service.git&path=src/한글 폴더&ref=feature/login");
+        assertThat(receivedRawQuery).contains("%20").doesNotContain("한글", " ");
+        assertThat(result.baseCommit()).isEqualTo("abc123");
+        assertThat(result.path()).isEqualTo("src/한글 폴더");
+        assertThat(result.items()).containsExactly(
+                new WebshellClient.FileItem("login.ts", "src/한글 폴더/login.ts", "file"));
+    }
+
+    @Test
+    void 파일_내용은_지정한_ref에서_읽는다() {
+        responseStatus = 200;
+        responseBody = """
+                {"path": "src/login.ts", "ref": "feature/login", "baseCommit": "abc123",
+                 "content": "export const message = '로그인 실패';"}
+                """;
+
+        WebshellClient.FileContentResult result = client().readFile(
+                "git@internal:auth-service.git", "src/login.ts", "feature/login");
+
+        assertThat(receivedMethod).isEqualTo("GET");
+        assertThat(receivedPath).isEqualTo("/v1/repos/files/content");
+        assertThat(receivedQuery).isEqualTo(
+                "repository=git@internal:auth-service.git&path=src/login.ts&ref=feature/login");
+        assertThat(result).isEqualTo(new WebshellClient.FileContentResult(
+                "src/login.ts", "feature/login", "abc123", "export const message = '로그인 실패';"));
+    }
+
+    @Test
+    void 현재_커밋은_루트_목록에서_읽고_빈_ref는_생략한다() {
+        responseStatus = 200;
+        responseBody = """
+                {"baseCommit": "abc123", "path": "", "items": []}
+                """;
+
+        String commit = client().currentCommit("git@internal:auth-service.git", " ");
+
+        assertThat(receivedMethod).isEqualTo("GET");
+        assertThat(receivedPath).isEqualTo("/v1/repos/files");
+        assertThat(receivedQuery).isEqualTo("repository=git@internal:auth-service.git");
+        assertThat(commit).isEqualTo("abc123");
+    }
+
+    @Test
+    void 실행_요청이_실패하면_502_WEBSHELL_UNAVAILABLE이다() {
+        responseStatus = 503;
+        responseBody = "{}";
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                java.util.Map.of("requestId", "r-1"), java.util.List.of());
+
+        assertThatThrownBy(() -> client().submitExecution(request))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
     }
 
     @Test
