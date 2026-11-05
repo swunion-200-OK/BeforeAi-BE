@@ -31,6 +31,8 @@ dependencies {
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
     // 문서 작업 diff(3.7 GET /requests/{id}/tasks/{taskId}/document)를 unified diff 형식으로 만듦
     implementation 'io.github.java-diff-utils:java-diff-utils:4.15'
+    // 결재 문서 미리보기·PDF를 서버에서 만듦 (GET /requests/{id}/approval-document…). 한글 폰트는 resources/fonts에 넣어 둠
+    implementation 'com.github.librepdf:openpdf:3.0.5'
     implementation('dev.samstevens.totp:totp:1.7.1') {
         // QR 이미지는 만들지 않고 otpauth URI만 내려 주므로 zxing은 제외
         exclude group: 'com.google.zxing'

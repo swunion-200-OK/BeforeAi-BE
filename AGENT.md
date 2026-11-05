@@ -12,7 +12,7 @@ BeforeAI-BE는 **AI가 만든 작업 계획(Plan)을 사람이 검토·승인한
 - Plan 해시는 웹 서비스가 제출(submit) 때 RFC 8785(JCS) + SHA-256으로 만들어 보여 주는 표시용 값이고, 승인자 기기와 웹쉘이 각자 다시 계산합니다.
 - 접속 환경(내부망/외부망)은 서버가 출발지 IP로 판별하고, 외부망에서는 허용된 기능만 열립니다(외부망 로그인은 OTP 필수).
 
-API 명세는 `.docs/BeforeAI.postman_collection.v2.json`(웹 서비스 79개, 웹쉘 8개, 콜백 1개 엔드포인트)에 있고, 원본 기획은 Notion의 「해커톤 기획 문서」 아래 「API 명세서」·「기능 명세서」입니다. 컬렉션에 "예시 / 계약 미정"으로 표시된 API는 필드명·응답 래퍼가 확정되지 않았으므로 확정 계약으로 간주하지 마세요. 단, 3.1(인증·내 정보·승인 키)은 컬렉션 예시를 계약으로 채택해 구현했습니다(리프레시 토큰만 본문 대신 HttpOnly 쿠키).
+API 명세는 `.docs/BeforeAI.postman_collection.v2.json`(웹 서비스 83개, 웹쉘 8개, 콜백 1개 엔드포인트. 3.10 결재 문서는 원문 명세 밖에서 구현에 맞춰 추가)에 있고, 원본 기획은 Notion의 「해커톤 기획 문서」 아래 「API 명세서」·「기능 명세서」입니다. 컬렉션에 "예시 / 계약 미정"으로 표시된 API는 필드명·응답 래퍼가 확정되지 않았으므로 확정 계약으로 간주하지 마세요. 단, 3.1(인증·내 정보·승인 키)은 컬렉션 예시를 계약으로 채택해 구현했습니다(리프레시 토큰만 본문 대신 HttpOnly 쿠키).
 
 **Slack 관련 기능(알림 설정 API `/me/notification-settings`, `/admin/integrations/slack`, OAuth 콜백, 사용자 Slack ID)은 범위에서 제외했습니다.** 명세에 있더라도 구현하지 않습니다.
 
@@ -148,3 +148,10 @@ src/main/resources/
 - `PolicyDeploymentService`는 버전 저장 후 별도 트랜잭션에서 최신 스냅샷을 배포합니다. 502여도 변경은 이미 저장될 수 있으며 오류 details의 `mutationCommitted`를 확인합니다. 최신 미적용 버전은 기본 30초마다 재전송합니다.
 - 새 정책 묶음은 기본적으로 실제 HTTP 클라이언트를 사용합니다. `webshell.policy-stub=true`는 개발·테스트에서만 명시적으로 켭니다. 공개키 등록·폐기도 새 정책 버전으로 같은 흐름을 타며, 등록된 키를 폐기할 때는 `adminProof` 본문이 필요합니다.
 - 정책 adminProof는 필드 존재만 검사하며 실제 서명 계약은 웹쉘과 합의해야 합니다. 공개키 등록 API의 Ed25519 검증 규칙을 정책 서명 규칙으로 재사용하지 않습니다.
+
+## 3.10 결재 문서·PDF
+
+- 프롬프트 요청(`source=PROMPT`) 하나당 `ApprovalDocument` 하나. `submit` 때 `ApprovalDocumentService.recordSubmission()`이 같은 트랜잭션에서 판(`ApprovalDocumentVersion`, 제출된 Plan 하나)을 만들고, 바뀐 Plan이 다시 제출되면 다음 판을 추가합니다. 에디터 변경·문서 롤백 요청과 실패 작업 재시도 Plan은 대상이 아닙니다.
+- 결재란은 작업마다 칸 하나, 도장은 그 Plan의 `Approval` 기록으로 그립니다. PDF 다운로드는 최신 판에서 금지 작업을 뺀 모든 작업이 `ApprovalPolicy.satisfied`를 만족할 때만 되고, 거부·취소·중단 요청은 막습니다.
+- 제출 뒤 요청자가 Plan을 고치는 중(ANALYZING·ANALYSIS_FAILED·REVIEWING·REAPPROVAL_REQUIRED)이면 최신 판을 `REVISING`으로 표시하고 다운로드를 막습니다.
+- 미리보기도 서버가 만든 PDF입니다. 렌더링은 `support/ApprovalDocumentPdfRenderer`(OpenPDF)만 담당하며 한글 폰트는 `resources/fonts`의 Noto Sans KR 서브셋(OFL)을 씁니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.
