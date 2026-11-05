@@ -42,7 +42,7 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
                              PromptBuilder promptBuilder,
                              @Value("${bedrock.model-id}") String modelId,
                              @Value("${bedrock.max-tokens:4096}") int maxTokens,
-                             @Value("${bedrock.temperature:0.2}") float temperature) {
+                             @Value("${bedrock.temperature:-1}") float temperature) {
         this.client = client;
         this.promptBuilder = promptBuilder;
         this.modelId = modelId;
@@ -62,6 +62,13 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
     }
 
     private String invoke(AnalysisInput input) {
+        InferenceConfiguration.Builder inference = InferenceConfiguration.builder().maxTokens(maxTokens);
+        // Claude Sonnet 5.5 등 최신 모델은 temperature를 지원하지 않는다(설정 시 400).
+        // temperature가 음수면 전송하지 않고, 0 이상일 때만 보낸다.
+        if (temperature >= 0) {
+            inference.temperature(temperature);
+        }
+
         ConverseRequest request = ConverseRequest.builder()
                 .modelId(modelId)
                 .system(SystemContentBlock.fromText(promptBuilder.systemPrompt()))
@@ -69,10 +76,7 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
                         .role(ConversationRole.USER)
                         .content(ContentBlock.fromText(promptBuilder.userPrompt(input)))
                         .build())
-                .inferenceConfig(InferenceConfiguration.builder()
-                        .maxTokens(maxTokens)
-                        .temperature(temperature)
-                        .build())
+                .inferenceConfig(inference.build())
                 .build();
 
         ConverseResponse response = client.converse(request);
