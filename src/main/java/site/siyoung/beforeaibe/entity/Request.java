@@ -82,6 +82,22 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.ANALYZING;
     }
 
+    // AI 분석 성공: 생성된 Plan을 현재 Plan으로 두고 검토 대기로 전이
+    public void finishAnalysisWithPlan(UUID planId) {
+        this.currentPlanId = planId;
+        this.status = RequestStatus.REVIEWING;
+    }
+
+    // AI 분석이 되물음(clarification)만 남긴 경우: Plan 없이 검토 대기로 전이(요청자가 answer로 재분석)
+    public void finishAnalysisWithoutPlan() {
+        this.status = RequestStatus.REVIEWING;
+    }
+
+    // AI 분석 실패: 재시도 가능한 실패 상태로 전이
+    public void failAnalysis() {
+        this.status = RequestStatus.ANALYSIS_FAILED;
+    }
+
     // Plan 수정·확인 질문 답변 뒤 재분석. 삭제를 반영한 새 Plan이 있으면 현재 Plan으로 바꿈
     public void startReanalysis(UUID planId) {
         this.currentPlanId = planId;

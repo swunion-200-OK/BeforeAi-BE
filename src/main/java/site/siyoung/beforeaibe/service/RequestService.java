@@ -5,6 +5,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.ai.RequestAnalysisDispatcher;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
 import site.siyoung.beforeaibe.dto.request.ApprovalResponse;
 import site.siyoung.beforeaibe.dto.request.PlanResponse;
@@ -56,6 +57,7 @@ public class RequestService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final RequestStreamService requestStreamService;
+    private final RequestAnalysisDispatcher analysisDispatcher;
 
     @Transactional
     public RequestStatusResponse create(UUID userId, RequestCreateRequest request) {
@@ -70,7 +72,8 @@ public class RequestService {
                 .status(RequestStatus.ANALYZING)
                 .analysisAttempts(FIRST_ANALYSIS_ATTEMPT)
                 .build());
-        // AI 분석기(Bedrock) 연동은 아직 없음. 연동하면 여기서 비동기 분석을 시작하고 결과로 REVIEWING/ANALYSIS_FAILED가 됨
+        // 커밋 후 비동기 AI 분석 시작. 분석기 비활성(Noop)이면 ANALYSIS_FAILED가 되어 수동 편집으로 진행
+        analysisDispatcher.dispatchAfterCommit(saved.getId());
         return RequestStatusResponse.from(saved);
     }
 
