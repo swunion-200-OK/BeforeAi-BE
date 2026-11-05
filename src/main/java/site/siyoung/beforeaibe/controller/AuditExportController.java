@@ -45,7 +45,7 @@ public class AuditExportController {
                                                      @Valid @RequestBody AuditExportCreateRequest request,
                                                      HttpServletRequest httpRequest) {
         return ResponseEntity.accepted().body(auditExportService.start(authUser.id(), request,
-                networkResolver.resolve(httpRequest), httpRequest.getRemoteAddr()));
+                networkResolver.resolve(httpRequest), networkResolver.clientIp(httpRequest)));
     }
 
     // 목록 API 공통 페이지 규칙: ?cursor=&limit= (기본 20, 최대 100)
