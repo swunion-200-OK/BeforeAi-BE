@@ -19,6 +19,8 @@ import site.siyoung.beforeaibe.entity.enums.ForbiddenProposalStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 
 import java.util.UUID;
+import site.siyoung.beforeaibe.exception.ApiException;
+import site.siyoung.beforeaibe.exception.ErrorCode;
 
 // 팀장이 제안한 부서 금지 작업 (DEP-06). 관리자가 확정하면 ForbiddenRule이 새로 만들어짐
 @Getter
@@ -63,11 +65,20 @@ public class ForbiddenProposal extends BaseTimeEntity {
     }
 
     public void confirm() {
+        requireOpen();
         this.status = ForbiddenProposalStatus.CONFIRMED;
     }
 
     public void reject(String rejectionReason) {
+        requireOpen();
         this.status = ForbiddenProposalStatus.REJECTED;
         this.rejectionReason = rejectionReason;
+    }
+
+    private void requireOpen() {
+        if (status != ForbiddenProposalStatus.OPEN) {
+            throw new ApiException(
+                    ErrorCode.INVALID_STATE, "대기 중인 제안만 처리할 수 있습니다");
+        }
     }
 }

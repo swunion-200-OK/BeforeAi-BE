@@ -17,6 +17,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.Map;
+import site.siyoung.beforeaibe.dto.admin.AdminProof;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -138,5 +140,28 @@ class WebshellClientTest {
     void 등록되지_않은_SSL_번들_이름이면_시작할_때_실패한다() {
         assertThatThrownBy(() -> new WebshellClient("https://127.0.0.1:1", "webshell", sslBundles()))
                 .isInstanceOf(NoSuchSslBundleException.class);
+    }
+
+    @Test
+    void 정책_스냅샷과_관리자_서명을_함께_전달한다() {
+        responseStatus = 200;
+        responseBody = "{\"version\":2,\"policyHash\":\"sha256:test\",\"applied\":true}";
+        UUID keyId = UUID.randomUUID();
+        var result = client().applyPolicy(Map.of("version", 2, "forbiddenRules", java.util.List.of()),
+                new AdminProof(keyId, "signature"));
+        assertThat(receivedMethod).isEqualTo("POST");
+        assertThat(receivedPath).isEqualTo("/v1/policies");
+        assertThat(receivedBody).contains("\"adminProof\":", "\"keyId\":\"" + keyId + "\"",
+                "\"signature\":\"signature\"", "\"forbiddenRules\":[]");
+        assertThat(result).isEqualTo(new PolicyDeploymentClient.Result(2, "sha256:test", true));
+    }
+
+    @Test
+    void 정책_배포_오류는_502로_반환한다() {
+        responseStatus = 503;
+        responseBody = "{}";
+        assertThatThrownBy(() -> client().applyPolicy(Map.of("version", 2), new AdminProof(UUID.randomUUID(), "signature")))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
     }
 }

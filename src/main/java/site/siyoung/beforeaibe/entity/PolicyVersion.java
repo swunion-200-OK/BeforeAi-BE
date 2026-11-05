@@ -21,6 +21,7 @@ import site.siyoung.beforeaibe.entity.enums.PolicyPreset;
 import site.siyoung.beforeaibe.entity.value.ApprovalMatrixRule;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 // 관리자 서명을 붙여 웹쉘에 배포한 정책 묶음의 버전. 프리셋·승인 기준표·금지 규칙·공개키가 바뀔 때마다 새 버전이 생기고
@@ -48,6 +49,11 @@ public class PolicyVersion extends BaseTimeEntity {
 
     @Column(nullable = false, length = 128)
     private String policyHash;
+
+    // 이전 정책은 null. 새 정책은 재전송할 정확한 전체 payload를 보존함.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> policyPayload;
 
     // 관리자 정책 서명(adminProof). 웹 서비스는 전달만 하고 검증은 웹쉘이 함
     @Column(nullable = false)
@@ -79,5 +85,12 @@ public class PolicyVersion extends BaseTimeEntity {
 
     public void markWebshellApplied() {
         this.webshellApplied = true;
+    }
+
+    public void attachPayload(Map<String, Object> payload) {
+        if (policyPayload != null) {
+            throw new IllegalStateException("정책 스냅샷은 변경할 수 없습니다");
+        }
+        this.policyPayload = payload;
     }
 }
