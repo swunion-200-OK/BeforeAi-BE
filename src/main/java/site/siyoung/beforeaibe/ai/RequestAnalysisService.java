@@ -18,6 +18,7 @@ import java.util.UUID;
 public class RequestAnalysisService {
 
     private final AiAnalyzer aiAnalyzer;
+    private final DemoAnalysisCache demoAnalysisCache;
     private final AnalysisPersistenceService persistence;
 
     // 요청 생성·재분석 커밋 후 호출된다. 요청은 이미 ANALYZING 상태.
@@ -29,11 +30,23 @@ public class RequestAnalysisService {
             if (input == null) {
                 return;
             }
-            AnalysisResult result = aiAnalyzer.analyze(input);
-            persistence.applyResult(requestId, result);
+            persistence.applyResult(requestId, analyze(requestId, input, answer));
         } catch (RuntimeException e) {
             log.warn("요청 {} 분석 중 예기치 못한 오류", requestId, e);
             persistence.applyResult(requestId, AnalysisResult.failed("분석 중 오류가 발생했습니다"));
         }
+    }
+
+    // 재분석은 요청자 답변을 반영해야 하므로 캐시를 쓰지 않음
+    private AnalysisResult analyze(UUID requestId, AnalysisInput input, String answer) {
+        if (answer != null) {
+            return aiAnalyzer.analyze(input);
+        }
+        return demoAnalysisCache.find(input.prompt())
+                .map(result -> {
+                    log.info("요청 {} 분석에 시연 캐시를 사용함 (Bedrock 호출 없음)", requestId);
+                    return result;
+                })
+                .orElseGet(() -> aiAnalyzer.analyze(input));
     }
 }
