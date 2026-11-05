@@ -1,0 +1,30 @@
+# BeforeAI-BE systemd service unit.
+# EC2 인스턴스에서 /etc/systemd/system/beforeai.service 로 복사해 사용한다.
+#
+#   sudo cp beforeai.service /etc/systemd/system/beforeai.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable beforeai
+#   sudo systemctl start beforeai
+#
+# 배포 유저가 ubuntu가 아니면 User / 경로를 맞춰 수정한다.
+
+[Unit]
+Description=BeforeAI-BE Spring Boot application
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/app
+
+# DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, SPRING_PROFILES_ACTIVE 등을 여기서 읽는다.
+# 이 파일은 서버에만 두고 절대 git에 올리지 않는다. 권한은 600 권장.
+EnvironmentFile=/home/ubuntu/app/.env
+
+ExecStart=/usr/bin/java -jar /home/ubuntu/app/app.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
