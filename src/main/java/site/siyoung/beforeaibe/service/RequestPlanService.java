@@ -48,6 +48,7 @@ public class RequestPlanService {
     private final PlanHashService planHashService;
     private final RequestStreamService requestStreamService;
     private final RequestAnalysisDispatcher analysisDispatcher;
+    private final RequestStatusEventPublisher requestStatusEventPublisher;
     // 제출 때 결재 문서 판을 같은 트랜잭션에서 만듦
     private final ApprovalDocumentService approvalDocumentService;
 
@@ -136,9 +137,11 @@ public class RequestPlanService {
         }
 
         plan.assignHash(planHashService.hash(request, plan));
+        RequestStatus previousStatus = request.getStatus();
         request.submit();
         approvalDocumentService.recordSubmission(request, plan);
         requestStreamService.publishTreeReplaced(request);
+        requestStatusEventPublisher.publish(request, previousStatus, userId);
         return new SubmitResponse(request.getId(), request.getStatus(), plan.getId(), plan.getPlanHash(),
                 selfApprovableTaskIds(plan, request.getRequesterId()));
     }

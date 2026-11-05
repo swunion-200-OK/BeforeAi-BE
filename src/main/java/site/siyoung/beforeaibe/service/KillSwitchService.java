@@ -39,6 +39,7 @@ public class KillSwitchService {
     private final ExecutionRepository executionRepository;
     private final RequestRepository requestRepository;
     private final RequestStreamService requestStreamService;
+    private final RequestStatusEventPublisher requestStatusEventPublisher;
 
     // 웹쉘이 중단을 받아들인 뒤에만 상태를 바꿈. 웹쉘 호출이 실패하면 502이고 바뀐 것은 없음
     @Transactional
@@ -62,7 +63,9 @@ public class KillSwitchService {
             return;
         }
         execution.kill(reason);
-        if (EXECUTING.contains(request.getStatus())) {
+        RequestStatus previousStatus = request.getStatus();
+        boolean killed = EXECUTING.contains(request.getStatus());
+        if (killed) {
             request.kill();
         }
         for (Task task : execution.getPlan().getTasks()) {
@@ -71,5 +74,8 @@ public class KillSwitchService {
             }
         }
         requestStreamService.publishTreeReplaced(request);
+        if (killed) {
+            requestStatusEventPublisher.publish(request, previousStatus, null);
+        }
     }
 }
