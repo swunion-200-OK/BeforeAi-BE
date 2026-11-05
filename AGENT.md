@@ -166,3 +166,6 @@ src/main/resources/
 - `POST /requests/{id}/retry`는 PARTIALLY_COMPLETED와 함께 FAILED도 받습니다. 금지·성공·거부 작업을 뺀 작업으로 새 Plan을 만듭니다.
 - 요청 상태 변경은 `Request` 메서드에서 `request_status_events`에 쌓입니다. 분석 스레드·콜백처럼 로그인 사용자가 없으면 행위자는 null입니다.
 - AI가 만든 diff는 저장 전에 `UnifiedDiffNormalizer`로 검사합니다. 구조가 깨지면 분석 실패로 돌리고, 헌크 줄 수만 틀리면 본문 기준으로 고칩니다. 헌크 시작 줄이 실제 파일과 맞는지는 웹쉘이 적용할 때 판단합니다.
+- 에디터 변경 요청은 202 ANALYZING으로 응답한 뒤, AI 분석 없이 커밋 직후 REVIEWING으로 넘어갑니다(`EditorReviewTransition`). 승인자는 위험도 MEDIUM 기준으로 정합니다.
+- 실패 작업 재시도 Plan은 `Plan.retry`로 표시하며, 다시 제출돼도 결재 문서의 판을 만들지 않습니다.
+- `GlobalExceptionHandler`는 이미 보낸 응답이나 끊긴 연결에는 오류 본문을 쓰지 않습니다.

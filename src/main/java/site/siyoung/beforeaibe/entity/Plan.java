@@ -58,6 +58,10 @@ public class Plan extends BaseTimeEntity {
     @Column(columnDefinition = "text")
     private String executorSignature;
 
+    // 실패 작업 재시도로 만든 Plan. 일부 작업만 담으므로 결재 문서의 판이 되지 않음
+    @Column(nullable = false)
+    private boolean retry;
+
     @OrderBy("order ASC")
     @OneToMany(mappedBy = "plan", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Task> tasks = new ArrayList<>();
@@ -76,6 +80,10 @@ public class Plan extends BaseTimeEntity {
     // 제출(submit)이나 실패 작업 재시도 때 웹 서비스가 계산한 표시용 해시를 채움
     public void assignHash(String planHash) {
         this.planHash = planHash;
+    }
+
+    public void markRetry() {
+        this.retry = true;
     }
 
     // 웹쉘이 실행을 받아들이며 돌려준 서명을 보관함 (POST /v1/executions 응답)
