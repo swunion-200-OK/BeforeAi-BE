@@ -15,6 +15,7 @@ import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,6 +63,20 @@ final class ApiTestSupport {
                 .passwordHash(passwordEncoder.encode(PASSWORD))
                 .name("관리자")
                 .role(Role.ADMIN)
+                .active(true)
+                .passwordChangeRequired(false)
+                .build());
+    }
+
+    // 역할·부서가 필요한 API(프로젝트·기획서 권한 등) 테스트용 사용자. 비밀번호 변경은 끝난 상태
+    static User saveUser(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                         String employeeNumber, Role role, UUID departmentId) {
+        return userRepository.saveAndFlush(User.builder()
+                .employeeNumber(employeeNumber)
+                .passwordHash(passwordEncoder.encode(PASSWORD))
+                .name("홍길동")
+                .role(role)
+                .departmentId(departmentId)
                 .active(true)
                 .passwordChangeRequired(false)
                 .build());
