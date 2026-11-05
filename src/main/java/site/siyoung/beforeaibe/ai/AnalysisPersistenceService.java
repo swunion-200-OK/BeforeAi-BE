@@ -43,8 +43,9 @@ public class AnalysisPersistenceService {
     private final RequestStreamService requestStreamService;
 
     // 분석 입력 구성. 요청이 없거나 ANALYZING이 아니면 null(분석 건너뜀).
+    // answer: 재분석 시 요청자 추가 답변(최초 분석이면 null)
     @Transactional(readOnly = true)
-    public AnalysisInput loadInput(UUID requestId) {
+    public AnalysisInput loadInput(UUID requestId, String answer) {
         Request request = requestRepository.findById(requestId).orElse(null);
         if (request == null || request.getStatus() != RequestStatus.ANALYZING) {
             return null;
@@ -56,7 +57,7 @@ public class AnalysisPersistenceService {
         List<String> forbidden = project == null ? List.of()
                 : forbiddenRuleRepository.firstPage(project.getDepartment().getId(), Limit.of(FORBIDDEN_RULE_LIMIT))
                         .stream().map(this::describe).toList();
-        return new AnalysisInput(request.getPrompt(), context, forbidden, null, request.getClarification());
+        return new AnalysisInput(request.getPrompt(), context, forbidden, null, answer);
     }
 
     // 분석 결과 반영. 요청 행을 잠그고 ANALYZING일 때만 전이.

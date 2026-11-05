@@ -21,10 +21,11 @@ public class RequestAnalysisService {
     private final AnalysisPersistenceService persistence;
 
     // 요청 생성·재분석 커밋 후 호출된다. 요청은 이미 ANALYZING 상태.
+    // answer: 재분석 시 요청자 추가 답변(최초 분석이면 null)
     @Async(AiAsyncConfig.EXECUTOR)
-    public void analyzeAsync(UUID requestId) {
+    public void analyzeAsync(UUID requestId, String answer) {
         try {
-            AnalysisInput input = persistence.loadInput(requestId);
+            AnalysisInput input = persistence.loadInput(requestId, answer);
             if (input == null) {
                 return;
             }

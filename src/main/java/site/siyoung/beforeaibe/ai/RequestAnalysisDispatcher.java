@@ -16,15 +16,20 @@ public class RequestAnalysisDispatcher {
     private final RequestAnalysisService analysisService;
 
     public void dispatchAfterCommit(UUID requestId) {
+        dispatchAfterCommit(requestId, null);
+    }
+
+    // answer: 재분석 시 요청자가 보낸 추가 답변(최초 분석이면 null)
+    public void dispatchAfterCommit(UUID requestId, String answer) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    analysisService.analyzeAsync(requestId);
+                    analysisService.analyzeAsync(requestId, answer);
                 }
             });
         } else {
-            analysisService.analyzeAsync(requestId);
+            analysisService.analyzeAsync(requestId, answer);
         }
     }
 }
