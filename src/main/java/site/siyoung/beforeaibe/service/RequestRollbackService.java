@@ -122,7 +122,8 @@ public class RequestRollbackService {
                         "문서에 targetVersion 버전이 없습니다"));
     }
 
-    // 원래 DOC 작업의 위험도·관련 부서·필요 승인권자를 그대로 쓰고, 본문만 복원할 버전 내용으로 바꿈
+    // 원래 DOC 작업의 위험도·관련 부서·필요 승인권자를 그대로 쓰고, 본문만 복원할 버전 내용으로 바꿈.
+    // 원본 설명은 바뀐 본문과 맞지 않으므로 explanation은 복사하지 않고 null로 둠
     private static Task rollbackTask(int order, Task source, DocumentVersion target) {
         return Task.builder()
                 .order(order)

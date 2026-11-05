@@ -18,6 +18,7 @@ import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import site.siyoung.beforeaibe.repository.ForbiddenRuleRepository;
 import site.siyoung.beforeaibe.repository.PlanRepository;
 import site.siyoung.beforeaibe.repository.ProjectRepository;
@@ -47,6 +48,9 @@ class AnalysisPersistenceServiceTest {
     private final ApproverResolver approvers = mock(ApproverResolver.class);
     private final AnalysisPersistenceService service = new AnalysisPersistenceService(requests, projects, plans,
             forbidden, mock(RequestStreamService.class), approvers, specs);
+
+    private static final TaskExplanation EXPLANATION = new TaskExplanation("메시지를 바꾼다",
+            List.of(new TaskExplanation.Change("a", "문구", "x", "y")), List.of("로그인 사용자"), "되돌리기");
 
     private final UUID requestId = UUID.randomUUID();
     private final UUID projectId = UUID.randomUUID();
@@ -90,7 +94,7 @@ class AnalysisPersistenceServiceTest {
     }
 
     private AnalysisResult resultWithDiff(String diff) {
-        return AnalysisResult.plan(List.of(new AiTask(TaskType.CODE_FEATURE, Risk.MEDIUM, "t", "a", diff, null, null, null)));
+        return AnalysisResult.plan(List.of(new AiTask(TaskType.CODE_FEATURE, Risk.MEDIUM, "t", "a", diff, null, null, null, EXPLANATION)));
     }
 
     @Test
@@ -112,5 +116,26 @@ class AnalysisPersistenceServiceTest {
         assertThat(saved.getValue().getTasks().getFirst().getContent().diff()).contains("@@ -1,1 +1,1 @@");
         assertThat(request.getStatus()).isEqualTo(RequestStatus.REVIEWING);
         assertThat(request.getReanalysisInput()).isNull();
+    }
+
+    @Test
+    void diff를_고쳐도_AI_작업_설명은_Task에_그대로_저장된다() {
+        service.applyResult(requestId, resultWithDiff("--- a/a\n+++ b/a\n@@ -1,5 +1,5 @@\n-x\n+y\n"));
+
+        ArgumentCaptor<Plan> saved = ArgumentCaptor.forClass(Plan.class);
+        verify(plans).save(saved.capture());
+        assertThat(saved.getValue().getTasks().getFirst().getExplanation()).isEqualTo(EXPLANATION);
+    }
+
+    @Test
+    void diff가_없는_작업도_설명이_유지되고_설명이_없으면_null이다() {
+        AiTask doc = new AiTask(TaskType.DOC, Risk.LOW, "d", "a.md", null, null, null, "본문", EXPLANATION);
+        AiTask noExplanation = new AiTask(TaskType.DOC, Risk.LOW, "e", "b.md", null, null, null, "본문", null);
+
+        service.applyResult(requestId, AnalysisResult.plan(List.of(doc, noExplanation)));
+
+        ArgumentCaptor<Plan> saved = ArgumentCaptor.forClass(Plan.class);
+        verify(plans).save(saved.capture());
+        assertThat(saved.getValue().getTasks()).extracting(Task::getExplanation).containsExactly(EXPLANATION, null);
     }
 }

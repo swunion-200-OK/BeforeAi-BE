@@ -6,6 +6,7 @@ import site.siyoung.beforeaibe.ai.dto.AnalysisResult;
 import site.siyoung.beforeaibe.ai.prompt.PromptBuilder;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
@@ -13,6 +14,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.StopReason;
 
 import java.util.List;
 
@@ -104,5 +106,71 @@ class BedrockAiAnalyzerTest {
         AnalysisResult result = analyzerReturning(json).analyze(input());
 
         assertThat(result.tasks().getFirst().risk()).isEqualTo(Risk.MEDIUM);
+    }
+
+    private static String taskJson(String explanation) {
+        return "{\"clarification\":null,\"tasks\":[{\"type\":\"DOC\",\"risk\":\"LOW\",\"title\":\"t\",\"target\":\"a.md\","
+                + "\"diff\":null,\"command\":null,\"query\":null,\"body\":\"본문\"" + explanation + "}]}";
+    }
+
+    @Test
+    void explanation을_파싱한다() {
+        String json = taskJson(",\"explanation\":{\"summary\":\"문서를 만든다\","
+                + "\"changes\":[{\"where\":\"a.md\",\"what\":\"새 문서\",\"after\":\"본문\"}],"
+                + "\"impact\":[\"독자\"],\"undo\":\"삭제\"}");
+
+        AnalysisResult result = analyzerReturning(json).analyze(input());
+
+        assertThat(result.isFailed()).isFalse();
+        TaskExplanation explanation = result.tasks().getFirst().explanation();
+        assertThat(explanation.summary()).isEqualTo("문서를 만든다");
+        assertThat(explanation.changes()).containsExactly(new TaskExplanation.Change("a.md", "새 문서", null, "본문"));
+        assertThat(explanation.impact()).containsExactly("독자");
+        assertThat(explanation.undo()).isEqualTo("삭제");
+    }
+
+    @Test
+    void explanation이_없거나_형식이_틀려도_분석은_성공하고_설명만_null이다() {
+        List<String> broken = List.of(
+                "", ",\"explanation\":null", ",\"explanation\":\"문자열\"", ",\"explanation\":[1,2]",
+                ",\"explanation\":{}", ",\"explanation\":{\"summary\":123}", ",\"explanation\":{\"summary\":{\"a\":1}}",
+                ",\"explanation\":{\"summary\":\" \"}");
+        for (String explanation : broken) {
+            AnalysisResult result = analyzerReturning(taskJson(explanation)).analyze(input());
+
+            assertThat(result.isFailed()).as(explanation).isFalse();
+            assertThat(result.tasks()).as(explanation).hasSize(1);
+            assertThat(result.tasks().getFirst().explanation()).as(explanation).isNull();
+        }
+    }
+
+    @Test
+    void explanation의_일부_필드가_틀리면_멀쩡한_필드만_남긴다() {
+        String json = taskJson(",\"explanation\":{\"summary\":\"요약\","
+                + "\"changes\":[\"문자열\",{\"where\":\"a\"},{\"where\":\"b\",\"what\":\"c\",\"before\":5}],"
+                + "\"impact\":\"배열 아님\",\"undo\":[\"x\"]}");
+
+        AnalysisResult result = analyzerReturning(json).analyze(input());
+
+        assertThat(result.isFailed()).isFalse();
+        TaskExplanation explanation = result.tasks().getFirst().explanation();
+        assertThat(explanation.summary()).isEqualTo("요약");
+        assertThat(explanation.changes()).containsExactly(new TaskExplanation.Change("b", "c", null, null));
+        assertThat(explanation.impact()).isEmpty();
+        assertThat(explanation.undo()).isNull();
+    }
+
+    @Test
+    void 응답이_최대_토큰에서_잘리면_분석_실패로_돌린다() {
+        BedrockRuntimeClient client = mock(BedrockRuntimeClient.class);
+        when(client.converse(any(ConverseRequest.class))).thenReturn(ConverseResponse.builder()
+                .stopReason(StopReason.MAX_TOKENS)
+                .output(ConverseOutput.builder().message(Message.builder().role(ConversationRole.ASSISTANT)
+                        .content(ContentBlock.fromText("{\"clarification\":null,\"tasks\":[{\"type\":\"DOC\"}]}")).build()).build())
+                .build());
+
+        AnalysisResult result = new BedrockAiAnalyzer(client, promptBuilder, "m", 1024, 0.2f).analyze(input());
+
+        assertThat(result.isFailed()).isTrue();
     }
 }

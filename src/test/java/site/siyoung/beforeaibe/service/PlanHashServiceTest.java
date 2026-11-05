@@ -14,6 +14,7 @@ import site.siyoung.beforeaibe.entity.enums.TaskStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -98,6 +99,38 @@ class PlanHashServiceTest {
         assertThat(planHashService.canonicalize(planHashService.hashTarget(request, plan))).isEqualTo(expectedCanonical);
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(expectedCanonical.getBytes(StandardCharsets.UTF_8));
         assertThat(planHashService.hash(request, plan)).isEqualTo("sha256:" + HexFormat.of().formatHex(digest));
+    }
+
+    @Test
+    void 작업_설명은_hashTarget과_해시에_들어가지_않는다() {
+        Request request = Request.builder()
+                .projectId(PROJECT_ID).requesterId(UUID.randomUUID()).prompt("프롬프트")
+                .source(RequestSource.PROMPT).status(RequestStatus.REVIEWING).analysisAttempts(1).build();
+        ReflectionTestUtils.setField(request, "id", REQUEST_ID);
+        TaskContent content = new TaskContent("--- a/x\n+++ b/x", null, null, null);
+        TaskExplanation explanation = new TaskExplanation("요약", List.of(new TaskExplanation.Change("x", "y", null, null)),
+                List.of("영향"), "되돌리기");
+        Plan withExplanation = planWith(request, explanation, content);
+        Plan withoutExplanation = planWith(request, null, content);
+
+        Map<String, Object> target = planHashService.hashTarget(request, withExplanation);
+
+        assertThat(target).isEqualTo(planHashService.hashTarget(request, withoutExplanation));
+        assertThat(planHashService.canonicalize(target)).doesNotContain("explanation");
+        assertThat(planHashService.hash(request, withExplanation)).isEqualTo(planHashService.hash(request, withoutExplanation));
+    }
+
+    private static Plan planWith(Request request, TaskExplanation explanation, TaskContent content) {
+        Plan plan = Plan.builder().request(request).kind(PlanKind.NORMAL).repository("r").baseCommit("c").build();
+        ReflectionTestUtils.setField(plan, "id", PLAN_ID);
+        Task task = Task.builder()
+                .order(1).type(TaskType.CODE_MINOR).risk(Risk.LOW).title("작업").target("x").content(content)
+                .relatedDepartments(List.of())
+                .requiredApprovers(List.of(new RequiredApprover(ApproverRule.ANYONE, 1, null)))
+                .status(TaskStatus.PENDING).explanation(explanation).build();
+        ReflectionTestUtils.setField(task, "id", CODE_TASK_ID);
+        plan.addTask(task);
+        return plan;
     }
 
     private static Task task(UUID id, int order, TaskType type, Risk risk, String target, TaskContent content) {

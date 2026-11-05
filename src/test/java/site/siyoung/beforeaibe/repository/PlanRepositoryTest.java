@@ -14,6 +14,7 @@ import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import site.siyoung.beforeaibe.entity.enums.ApproverRule;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskStatus;
@@ -35,6 +36,53 @@ class PlanRepositoryTest {
 
     @Autowired
     private TestEntityManager em;
+
+    private static Task taskWith(TaskExplanation explanation) {
+        return Task.builder()
+                .order(1)
+                .type(TaskType.DOC)
+                .risk(Risk.LOW)
+                .title("문서 작성")
+                .target("docs/a.md")
+                .content(new TaskContent(null, null, null, "본문"))
+                .relatedDepartments(List.of())
+                .requiredApprovers(List.of(new RequiredApprover(ApproverRule.ANYONE, 1, null)))
+                .status(TaskStatus.PENDING)
+                .explanation(explanation)
+                .build();
+    }
+
+    private Task saveAndReload(TaskExplanation explanation) {
+        Plan plan = RepositoryTestSupport.plan(RepositoryTestSupport.persistRequest(em));
+        plan.addTask(taskWith(explanation));
+        Plan saved = planRepository.saveAndFlush(plan);
+        em.clear();
+        return planRepository.findById(saved.getId()).orElseThrow().getTasks().getFirst();
+    }
+
+    @Test
+    void 작업_설명을_jsonb로_저장하고_다시_읽는다() {
+        TaskExplanation explanation = new TaskExplanation("문서를 만듭니다",
+                List.of(new TaskExplanation.Change("docs/a.md", "새 문서", null, "본문")),
+                List.of("문서 독자"), "이전 버전으로 되돌립니다");
+
+        assertThat(saveAndReload(explanation).getExplanation()).isEqualTo(explanation);
+    }
+
+    @Test
+    void 항목이_빠진_작업_설명도_빈_배열로_읽는다() {
+        TaskExplanation found = saveAndReload(new TaskExplanation("문서를 만듭니다", null, null, null))
+                .getExplanation();
+
+        assertThat(found.changes()).isEmpty();
+        assertThat(found.impact()).isEmpty();
+        assertThat(found.undo()).isNull();
+    }
+
+    @Test
+    void 작업_설명이_없으면_null로_읽는다() {
+        assertThat(saveAndReload(null).getExplanation()).isNull();
+    }
 
     @Test
     void Plan과_Task를_함께_저장하면_Task가_order_순서로_조회된다() {
