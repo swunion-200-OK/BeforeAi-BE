@@ -3,6 +3,8 @@ package site.siyoung.beforeaibe.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import site.siyoung.beforeaibe.dto.editor.EditorChangeRequest;
 import site.siyoung.beforeaibe.dto.editor.EditorChangeResponse;
 import site.siyoung.beforeaibe.dto.editor.FileChange;
@@ -46,6 +48,8 @@ public class EditorService {
     private final WebshellClient webshellClient;
     private final RequestRepository requestRepository;
     private final PlanRepository planRepository;
+    private final ApproverResolver approverResolver;
+    private final EditorReviewTransition editorReviewTransition;
 
     // #1 GET /projects/{projectId}/files — 저장소 디렉터리 목록 + 기준 커밋 (읽기 전용)
     public FileListResponse listFiles(UUID projectId, String path, String ref) {
@@ -86,16 +90,23 @@ public class EditorService {
                 .repository(project.getRepository())
                 .baseCommit(request.baseCommit())
                 .build();
-        plan.addTask(buildCodeTask(request));
+        plan.addTask(buildCodeTask(request, project, userId));
         planRepository.save(plan);
 
         saved.attachPlan(plan.getId());
-        // AI 위험도 분류·REVIEWING 전이는 분석기(Bedrock) 연동에서 처리. 지금은 ANALYZING으로 둠 (implplan-3.8 §3)
+        // 응답은 ANALYZING 그대로 두고, 커밋 뒤 AI 분석 없이 REVIEWING으로 옮겨 제출·승인 흐름에 태움
+        UUID requestId = saved.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                editorReviewTransition.moveToReviewing(requestId);
+            }
+        });
         return EditorChangeResponse.from(saved);
     }
 
     // 파일별 unified diff를 하나로 합쳐 코드 수정 작업 1개로 만듦. 여러 파일이면 target은 대표 경로 표기
-    private Task buildCodeTask(EditorChangeRequest request) {
+    private Task buildCodeTask(EditorChangeRequest request, Project project, UUID userId) {
         List<FileChange> files = request.files();
         String combinedDiff = files.stream().map(FileChange::patch).collect(Collectors.joining("\n"));
         return Task.builder()
@@ -106,7 +117,7 @@ public class EditorService {
                 .target(describeTarget(files))
                 .content(new TaskContent(combinedDiff, null, null, null))
                 .relatedDepartments(List.of())
-                .requiredApprovers(List.of())
+                .requiredApprovers(approverResolver.resolve(TaskType.CODE_MINOR, UNCLASSIFIED_RISK, project, userId))
                 .status(TaskStatus.PENDING)
                 .build();
     }

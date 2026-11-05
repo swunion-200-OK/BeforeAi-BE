@@ -175,6 +175,7 @@ public class RequestPlanService {
         }
 
         Plan retryPlan = copyPlan(request, current, include, task -> TaskStatus.PENDING);
+        retryPlan.markRetry();
         retryPlan.assignHash(planHashService.hash(request, retryPlan));
         request.retryFailedTasks(retryPlan.getId());
         requestStreamService.publishTreeReplaced(request);
@@ -221,6 +222,10 @@ public class RequestPlanService {
                 .repository(source.getRepository())
                 .baseCommit(source.getBaseCommit())
                 .build();
+        // 재시도 Plan에서 작업만 뺀 사본도 전체 Plan이 아니므로 결재 문서의 판이 되면 안 됨
+        if (source.isRetry()) {
+            copy.markRetry();
+        }
         source.getTasks().stream()
                 .filter(include)
                 .forEach(task -> copy.addTask(task.copy(status.apply(task))));

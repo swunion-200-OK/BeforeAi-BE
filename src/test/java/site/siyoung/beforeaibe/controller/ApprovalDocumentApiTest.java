@@ -381,6 +381,41 @@ class ApprovalDocumentApiTest {
     }
 
     @Test
+    void 실패_작업_재시도_Plan을_수정_요청_뒤_다시_제출해도_판이_늘지_않는다() throws Exception {
+        Request request = submittedRequest();
+        Plan v1 = currentPlan(request);
+        taskTitled(v1, "로그인 실패 메시지 변경").changeStatus(TaskStatus.SUCCEEDED);
+        taskTitled(v1, "스테이징 배포").changeStatus(TaskStatus.FAILED);
+        planRepository.saveAndFlush(v1);
+        Request partial = requestRepository.findById(request.getId()).orElseThrow();
+        ReflectionTestUtils.setField(partial, "status", RequestStatus.PARTIALLY_COMPLETED);
+        requestRepository.saveAndFlush(partial);
+        String requesterToken = token(requester);
+
+        mockMvc.perform(post("/api/v1/requests/{id}/retry", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, requesterToken))
+                .andExpect(status().isOk());
+        Plan retryPlan = currentPlan(request);
+        assertThat(retryPlan.getId()).isNotEqualTo(v1.getId());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/change-requests", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token(manager))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "taskIds": ["%s"], "reason": "배포 대상을 확인해 주세요."}"""
+                                .formatted(retryPlan.getId(), retryPlan.getTasks().getFirst().getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REVIEWING"));
+        submit(request);
+
+        mockMvc.perform(get("/api/v1/requests/{id}/approval-document/versions", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, requesterToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].planId").value(v1.getId().toString()));
+    }
+
+    @Test
     void 없는_판은_찾을_수_없다() throws Exception {
         Request request = submittedRequest();
 
