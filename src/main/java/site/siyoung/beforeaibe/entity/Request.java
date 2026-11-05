@@ -81,6 +81,11 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.ANALYZING;
     }
 
+    // 에디터 변경 요청: 확정된 diff로 만든 Plan을 바로 현재 Plan으로 연결. 상태는 생성 시점 그대로 둠 (API 명세서 3.8)
+    public void attachPlan(UUID planId) {
+        this.currentPlanId = planId;
+    }
+
     public void submit() {
         this.status = RequestStatus.PENDING_APPROVAL;
     }
@@ -89,6 +94,16 @@ public class Request extends BaseTimeEntity {
     public void retryFailedTasks(UUID planId) {
         this.currentPlanId = planId;
         this.status = RequestStatus.PENDING_APPROVAL;
+    }
+
+    // 현재 Plan의 작업이 모두 승인되고 웹쉘이 실행을 받아들이면 실행 중으로 전이
+    public void startRunning() {
+        this.status = RequestStatus.RUNNING;
+    }
+
+    // 승인권자가 작업을 거부하면 요청을 거부 상태로 둠
+    public void reject() {
+        this.status = RequestStatus.REJECTED;
     }
 
     public void cancel() {

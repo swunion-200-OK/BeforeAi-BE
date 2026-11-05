@@ -137,3 +137,11 @@ src/main/resources/
 - 작업 브랜치는 `dev`, 기본(배포) 브랜치는 `master`입니다.
 - 커밋 메시지는 짧은 접두어 + 한국어/영어 요약 형식을 따릅니다 (예: `add: Api 콜렉션 작성`, `fix: ...`, `refactor: ...`).
 - 사용자가 요청하지 않으면 커밋·푸시하지 않습니다.
+
+## 3.4 금지 작업·정책 배포
+
+- 구현 계약은 `.docs/forbidden-workflow.md`를 참고합니다. 규칙 조회에는 `RELEASE_PENDING`도 포함하며 해제 요청 후에도 금지는 유효합니다.
+- 정책 변경은 `PolicyRevisionService`와 `PolicyChangeLock`을 통해 직렬화합니다. 정책 버전은 전체 `policyPayload`를 보존하고 금지 규칙·등록된 서명키를 포함해 해시를 계산합니다.
+- `PolicyDeploymentService`는 버전 저장 후 별도 트랜잭션에서 최신 스냅샷을 배포합니다. 502여도 변경은 이미 저장될 수 있으며 오류 details의 `mutationCommitted`를 확인합니다. 최신 미적용 버전은 기본 30초마다 재전송합니다.
+- 새 정책 묶음은 기본적으로 실제 HTTP 클라이언트를 사용합니다. `webshell.policy-stub=true`는 개발·테스트에서만 명시적으로 켭니다. 기존 공개키 등록·폐기·전사 중단 포트의 스텁과 구분합니다.
+- 정책 adminProof는 필드 존재만 검사하며 실제 서명 계약은 웹쉘과 합의해야 합니다. 공개키 등록 API의 Ed25519 검증 규칙을 정책 서명 규칙으로 재사용하지 않습니다.
