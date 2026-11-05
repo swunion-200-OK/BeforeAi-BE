@@ -20,8 +20,10 @@ import site.siyoung.beforeaibe.exception.ApiException;
 import site.siyoung.beforeaibe.exception.ErrorCode;
 import site.siyoung.beforeaibe.repository.PlanRepository;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -42,8 +44,13 @@ public class RequestPlanService {
     private static final Set<RequestStatus> SUBMITTABLE = EnumSet.of(
             RequestStatus.REVIEWING, RequestStatus.REAPPROVAL_REQUIRED, RequestStatus.VERIFICATION_FAILED);
     private static final Set<TaskStatus> RETRYABLE_TASK = EnumSet.of(TaskStatus.FAILED, TaskStatus.SKIPPED);
+    // 전체 실패는 작업 이벤트 없이 끝나 작업이 APPROVED·RUNNING에 머물 수 있으므로 함께 다시 실행함.
+    // 부분 완료는 성공 이벤트만 유실됐을 수 있어 실패·건너뛴 작업만 다시 실행함
+    private static final Set<TaskStatus> RETRYABLE_AFTER_FAILURE = EnumSet.of(
+            TaskStatus.FAILED, TaskStatus.SKIPPED, TaskStatus.APPROVED, TaskStatus.RUNNING);
 
     private final RequestService requestService;
+    private final ApprovalPolicy approvalPolicy;
     private final PlanRepository planRepository;
     private final PlanHashService planHashService;
     private final RequestStreamService requestStreamService;
@@ -104,14 +111,17 @@ public class RequestPlanService {
             }
         }
 
-        // answer는 재분석 입력으로 디스패처에 직접 넘기고, 되물음(clarification)은 명세대로 비운다.
-        String answer = hasAnswer ? patch.answer() : null;
+        // 답변·수정 지시를 재분석 입력으로 보관하고, 되물음(clarification)은 명세대로 비운다.
+        String input = reanalysisInput(request, patch, changes);
+        if (input != null) {
+            request.appendReanalysisInput(input);
+        }
         if (hasAnswer) {
             request.clearClarification();
         }
         request.startReanalysis(planId);
-        // 커밋 후 비동기 재분석 시작 (answer를 분석 입력으로 전달)
-        analysisDispatcher.dispatchAfterCommit(request.getId(), answer);
+        // 커밋 후 비동기 재분석 시작 (입력은 요청에 보관돼 있어 분석 재시도 때도 쓰임)
+        analysisDispatcher.dispatchAfterCommit(request.getId());
         if (planReplaced) {
             requestStreamService.publishTreeReplaced(request);
         } else {
@@ -136,6 +146,13 @@ public class RequestPlanService {
             throw new ApiException(ErrorCode.FORBIDDEN_TASK, "제출 가능한 작업이 없고 금지 작업만 남아 있습니다");
         }
 
+        // 후보가 모자란 작업은 제출해도 영원히 승인될 수 없으므로 여기서 알림
+        if (plan.getTasks().stream()
+                .filter(task -> task.getRisk() != Risk.FORBIDDEN)
+                .anyMatch(task -> !approvalPolicy.hasEnoughCandidates(task))) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "승인 후보가 부족한 작업이 있습니다. 담당자나 부서원을 확인해 주세요");
+        }
+
         plan.assignHash(planHashService.hash(request, plan));
         RequestStatus previousStatus = request.getStatus();
         request.submit();
@@ -150,20 +167,41 @@ public class RequestPlanService {
     @Transactional
     public PlanRetryResponse retryFailedTasks(UUID userId, UUID requestId) {
         Request request = requestService.getRequesterRequestForUpdate(requestId, userId);
-        if (request.getStatus() != RequestStatus.PARTIALLY_COMPLETED) {
-            throw new ApiException(ErrorCode.INVALID_STATE, "부분 완료된 요청만 재시도할 수 있습니다");
+        if (request.getStatus() != RequestStatus.PARTIALLY_COMPLETED && request.getStatus() != RequestStatus.FAILED) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "부분 완료되거나 실패한 요청만 재시도할 수 있습니다");
         }
         Plan current = requestService.getCurrentPlan(request);
-        if (current.getTasks().stream().noneMatch(task -> RETRYABLE_TASK.contains(task.getStatus()))) {
+        Set<TaskStatus> retryable = request.getStatus() == RequestStatus.FAILED ? RETRYABLE_AFTER_FAILURE : RETRYABLE_TASK;
+        Predicate<Task> include = task -> task.getRisk() != Risk.FORBIDDEN && retryable.contains(task.getStatus());
+        if (current.getTasks().stream().noneMatch(include)) {
             throw new ApiException(ErrorCode.INVALID_STATE, "재시도할 작업이 없습니다");
         }
 
-        Plan retryPlan = copyPlan(request, current, task -> RETRYABLE_TASK.contains(task.getStatus()),
-                task -> TaskStatus.PENDING);
+        Plan retryPlan = copyPlan(request, current, include, task -> TaskStatus.PENDING);
+        retryPlan.markRetry();
         retryPlan.assignHash(planHashService.hash(request, retryPlan));
         request.retryFailedTasks(retryPlan.getId());
         requestStreamService.publishTreeReplaced(request);
         return new PlanRetryResponse(request.getId(), request.getStatus(), retryPlan.getId(), retryPlan.getPlanHash());
+    }
+
+    // AI가 맥락을 알도록 되물음과 답변을 함께 남기고, UPDATE 지시는 대상 작업 제목을 붙임
+    private String reanalysisInput(Request request, PlanPatchRequest patch, List<PlanChangeRequest> changes) {
+        List<String> parts = new ArrayList<>();
+        if (patch.answer() != null && !patch.answer().isBlank()) {
+            parts.add(request.getClarification() == null ? patch.answer()
+                    : "질문: " + request.getClarification() + "\n답변: " + patch.answer());
+        }
+        List<PlanChangeRequest> updates = changes.stream()
+                .filter(change -> change.op() == PlanChangeRequest.Op.UPDATE)
+                .toList();
+        if (!updates.isEmpty()) {
+            Map<UUID, Task> tasks = requestService.getCurrentPlanTasksById(patch.basePlanId());
+            parts.add(updates.stream()
+                    .map(change -> "- 작업 \"" + tasks.get(change.taskId()).getTitle() + "\" 수정: " + change.instruction())
+                    .collect(Collectors.joining("\n")));
+        }
+        return parts.isEmpty() ? null : String.join("\n", parts);
     }
 
     private void validateChanges(Plan plan, List<PlanChangeRequest> changes) {
@@ -187,6 +225,10 @@ public class RequestPlanService {
                 .repository(source.getRepository())
                 .baseCommit(source.getBaseCommit())
                 .build();
+        // 재시도 Plan에서 작업만 뺀 사본도 전체 Plan이 아니므로 결재 문서의 판이 되면 안 됨
+        if (source.isRetry()) {
+            copy.markRetry();
+        }
         source.getTasks().stream()
                 .filter(include)
                 .forEach(task -> copy.addTask(task.copy(status.apply(task))));

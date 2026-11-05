@@ -167,7 +167,7 @@ public class ApprovalDocumentPdfRenderer {
 
     private PdfPCell slotInfoCell(ApprovalSlotResponse slot) {
         Phrase phrase = new Phrase();
-        phrase.add(new Chunk("#" + slot.order() + "  " + slot.title() + "\n", font(bold, 10, INK)));
+        phrase.add(new Chunk("#" + (slot.order() + 1) + "  " + slot.title() + "\n", font(bold, 10, INK)));
         phrase.add(new Chunk(typeLabel(slot.type()) + " · 위험도 " + riskLabel(slot.risk()) + "\n",
                 font(regular, 8.5f, MUTED)));
         phrase.add(new Chunk("대상 " + slot.target() + "\n", font(regular, 8.5f, MUTED)));
@@ -244,7 +244,7 @@ public class ApprovalDocumentPdfRenderer {
         labelCell(table, "작업");
         labelCell(table, "최종 상태");
         for (TaskResultResponse result : doc.results()) {
-            valueCell(table, "#" + result.order());
+            valueCell(table, "#" + (result.order() + 1));
             valueCell(table, result.title());
             PdfPCell status = new PdfPCell(new Phrase(resultLabel(result.status()),
                     font(bold, 9, resultColor(result.status()))));
@@ -371,7 +371,7 @@ public class ApprovalDocumentPdfRenderer {
             case APPROVED -> "결재 완료";
             case REVISING -> "Plan 수정 중";
             case SUPERSEDED -> "이전 판 (기록)";
-            case REJECTED -> "반려";
+            case REJECTED -> "거부됨";
             case CANCELED -> "취소";
             case KILLED -> "실행 중단";
         };

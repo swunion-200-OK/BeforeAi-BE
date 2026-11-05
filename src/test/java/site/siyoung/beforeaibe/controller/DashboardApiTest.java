@@ -245,4 +245,21 @@ class DashboardApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(3));
     }
+
+    @Test
+    void 전체_범위는_부서별_집계를_담고_개인_범위는_비운다() throws Exception {
+        saveRequest(devProject, requester, RequestStatus.PENDING_APPROVAL,
+                task(1, TaskType.DEPLOY, Risk.HIGH, List.of(candidate.getId())));
+        saveRequest(devProject, requester, RequestStatus.RUNNING,
+                task(1, TaskType.DEPLOY, Risk.HIGH, List.of(candidate.getId())));
+
+        // setUp의 개발팀 승인 대기 요청 1건을 포함
+        mockMvc.perform(get("/api/v1/dashboard").header(HttpHeaders.AUTHORIZATION, token("ADMIN001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byDepartment[?(@.departmentId == '%s')].requests".formatted(devProject.getDepartment().getId())).value(3))
+                .andExpect(jsonPath("$.byDepartment[?(@.departmentId == '%s')].pendingApprovals".formatted(devProject.getDepartment().getId())).value(2))
+                .andExpect(jsonPath("$.byDepartment[?(@.departmentId == '%s')].running".formatted(devProject.getDepartment().getId())).value(1));
+        mockMvc.perform(get("/api/v1/dashboard").param("scope", "ME").header(HttpHeaders.AUTHORIZATION, token("ADMIN001")))
+                .andExpect(jsonPath("$.byDepartment.length()").value(0));
+    }
 }

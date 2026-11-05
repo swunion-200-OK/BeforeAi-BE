@@ -3,6 +3,9 @@ package site.siyoung.beforeaibe.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.dto.approval.ChangeRequestCreateRequest;
+import site.siyoung.beforeaibe.dto.approval.ExecutionRetryResponse;
+import site.siyoung.beforeaibe.dto.request.RequestStatusResponse;
 import site.siyoung.beforeaibe.dto.approval.ApprovalContextResponse;
 import site.siyoung.beforeaibe.dto.approval.ApprovalSubmitRequest;
 import site.siyoung.beforeaibe.dto.approval.ApprovalSubmitResponse;
@@ -115,8 +118,21 @@ public class ApprovalService {
                 result.approvedTaskIds(), result.remainingTaskIds(), executionRequested);
     }
 
-    public RejectionResponse reject(UUID userId, UUID requestId, RejectionRequest body) {
-        return approvalTransactionService.reject(userId, requestId, body);
+    public RejectionResponse reject(UUID userId, UUID requestId, Network network, RejectionRequest body) {
+        return approvalTransactionService.reject(userId, requestId, network, body);
+    }
+
+    public RequestStatusResponse requestChanges(UUID userId, UUID requestId, Network network,
+                                                ChangeRequestCreateRequest body) {
+        return approvalTransactionService.requestChanges(userId, requestId, network, body);
+    }
+
+    // 전량 승인 후 웹쉘 연결 실패로 멈춘 요청을 다시 보냄. 또 실패하면 502를 그대로 돌려줌.
+    // 이미 실행 중이면 웹쉘을 다시 부르지 않고 현재 상태를 돌려줌. 승인이 덜 모였으면 409
+    public ExecutionRetryResponse retryExecution(UUID userId, UUID requestId, Network network) {
+        UUID planId = approvalTransactionService.prepareExecutionRetry(userId, requestId, network);
+        RequestStatus status = approvalTransactionService.requestExecution(requestId, planId);
+        return new ExecutionRetryResponse(requestId, status, status != RequestStatus.VERIFICATION_FAILED);
     }
 
     private User findUser(UUID userId) {

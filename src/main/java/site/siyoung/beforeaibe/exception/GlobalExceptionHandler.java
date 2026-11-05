@@ -1,5 +1,6 @@
 package site.siyoung.beforeaibe.exception;
 
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatusCode;
@@ -9,6 +10,9 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import site.siyoung.beforeaibe.dto.common.ErrorResponse;
@@ -61,6 +65,11 @@ public class GlobalExceptionHandler {
     // 상태 코드로 명세 코드에 매핑하고, 나머지는 로그를 남기고 500으로 응답
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleException(Exception e) {
+        // SSE·PDF를 보내던 중 클라이언트가 끊으면 응답을 더 쓸 수 없음. 오류가 아니므로 쓰기를 시도하지 않음
+        if (e instanceof AsyncRequestNotUsableException || isCommitted()) {
+            log.debug("이미 보낸 응답에서 난 예외라 오류 응답을 쓰지 않음: {}", e.toString());
+            return null;
+        }
         if (e instanceof org.springframework.web.ErrorResponse springError) {
             HttpStatusCode status = springError.getStatusCode();
             if (status.value() == 404) {
@@ -80,9 +89,27 @@ public class GlobalExceptionHandler {
 
     // Content-Type을 JSON으로 고정해 Accept 협상을 거치지 않게 함. 그래야 SSE 구독(Accept: text/event-stream)에서
     // 권한 오류가 나도 500(HttpMediaTypeNotAcceptableException)이 아니라 명세 형식의 오류로 응답함
+    // 다만 Spring은 서블릿 응답에 이미 지정된 Content-Type을 우선하므로, SSE·PDF 처리 중 난 예외는 여기서 먼저 바꿔 줌
     private ResponseEntity<ErrorResponse> error(ErrorCode code, String message, Map<String, Object> details) {
+        if (isCommitted()) {
+            return null;
+        }
+        HttpServletResponse response = currentResponse();
+        if (response != null) {
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        }
         return ResponseEntity.status(code.getStatus())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ErrorResponse.of(code, message, details));
+    }
+
+    private boolean isCommitted() {
+        HttpServletResponse response = currentResponse();
+        return response != null && response.isCommitted();
+    }
+
+    private HttpServletResponse currentResponse() {
+        return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
+                ? attributes.getResponse() : null;
     }
 }

@@ -76,8 +76,8 @@ public class ApprovalDocumentService {
     // 요청 행 잠금(getRequesterRequestForUpdate) 아래에서 불리므로 판 번호가 겹치지 않음
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordSubmission(Request request, Plan plan) {
-        // 결재 문서는 프롬프트 요청의 일반 Plan만 대상 (에디터 변경·문서 롤백 요청은 대상 아님)
-        if (request.getSource() != RequestSource.PROMPT || plan.getKind() != PlanKind.NORMAL) {
+        // 결재 문서는 프롬프트 요청의 일반 Plan만 대상 (에디터 변경·문서 롤백 요청, 실패 작업 재시도 Plan은 대상 아님)
+        if (request.getSource() != RequestSource.PROMPT || plan.getKind() != PlanKind.NORMAL || plan.isRetry()) {
             return;
         }
         ApprovalDocument document = approvalDocumentRepository.findByRequest_Id(request.getId()).orElse(null);
