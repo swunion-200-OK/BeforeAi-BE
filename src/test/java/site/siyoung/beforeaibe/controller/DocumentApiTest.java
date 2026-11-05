@@ -325,7 +325,7 @@ class DocumentApiTest {
     @Test
     void 이미_적용된_문서_작업은_적용_직전_버전과의_diff를_보여준다() throws Exception {
         Request other = saveRequest(RequestStatus.COMPLETED, docTask("v1"));
-        Request request = saveRequest(RequestStatus.COMPLETED, docTask("적용된 안내"));
+        Request request = saveRequest(RequestStatus.COMPLETED, appliedDocTask("적용된 안내"));
         Document document = saveDocument(PATH, 2);
         saveVersion(document, 1, "이전 안내", other);
         saveVersion(document, 2, "적용된 안내", request);
@@ -336,6 +336,46 @@ class DocumentApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.diff").value(containsString("-이전 안내")))
                 .andExpect(jsonPath("$.diff").value(containsString("+적용된 안내")));
+    }
+
+    private static Task appliedDocTask(String body) {
+        Task task = docTask(body);
+        task.changeStatus(TaskStatus.SUCCEEDED);
+        return task;
+    }
+
+    @Test
+    void 승인_전_롤백_작업은_같은_요청이_만든_버전이_있어도_현재_버전과의_diff를_보여준다() throws Exception {
+        Request other = saveRequest(RequestStatus.COMPLETED, docTask("첫 버전"));
+        // 롤백 Plan은 원래 요청에 속하므로 이 요청이 이미 버전을 만든 상태에서 새 작업이 생김
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL, docTask("첫 버전"));
+        Document document = saveDocument(PATH, 2);
+        saveVersion(document, 1, "첫 버전", other);
+        saveVersion(document, 2, "둘째 버전", request);
+
+        mockMvc.perform(get("/api/v1/requests/{id}/tasks/{taskId}/document", request.getId(), firstTaskId(request))
+                        .with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.diff").value(containsString("-둘째 버전")))
+                .andExpect(jsonPath("$.diff").value(containsString("+첫 버전")));
+    }
+
+    @Test
+    void 적용된_롤백_작업은_롤백_직전_버전과의_diff를_보여준다() throws Exception {
+        Request other = saveRequest(RequestStatus.COMPLETED, docTask("첫 버전"));
+        Request request = saveRequest(RequestStatus.ROLLED_BACK, appliedDocTask("첫 버전"));
+        Document document = saveDocument(PATH, 3);
+        saveVersion(document, 1, "첫 버전", other);
+        saveVersion(document, 2, "둘째 버전", request);
+        saveVersion(document, 3, "첫 버전", request);
+
+        mockMvc.perform(get("/api/v1/requests/{id}/tasks/{taskId}/document", request.getId(), firstTaskId(request))
+                        .with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.diff").value(containsString("-둘째 버전")))
+                .andExpect(jsonPath("$.diff").value(containsString("+첫 버전")));
     }
 
     @Test

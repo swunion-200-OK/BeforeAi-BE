@@ -634,6 +634,23 @@ class AdminMiscApiTest {
     }
 
     @Test
+    void kill_all은_실행_중이던_작업을_FAILED로_시작_전_작업을_SKIPPED로_바꾼다() throws Exception {
+        String token = adminToken();
+        Execution execution = saveRunningExecution(TaskStatus.SUCCEEDED, TaskStatus.RUNNING, TaskStatus.APPROVED);
+        given(webshellClient.killAll("긴급 중단")).willReturn(new WebshellClient.KillAllResult(
+                List.of(execution.getWebshellExecutionId()), "KILLED", "c2ln"));
+
+        mockMvc.perform(post("/api/v1/admin/kill-all").with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content("{\"reason\": \"긴급 중단\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(planRepository.findWithTasksById(execution.getPlan().getId()).orElseThrow().getTasks())
+                .extracting(Task::getStatus)
+                .containsExactly(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.SKIPPED);
+    }
+
+    @Test
     void kill_all에서_웹쉘에_연결할_수_없으면_502이고_실행_상태는_그대로다() throws Exception {
         String token = adminToken();
         Execution execution = saveRunningExecution();
@@ -651,6 +668,10 @@ class AdminMiscApiTest {
 
     // 실행 중인 요청 + 현재 Plan(성공한 작업 1개, 시작 전 작업 1개) + 실행 세션
     private Execution saveRunningExecution() {
+        return saveRunningExecution(TaskStatus.SUCCEEDED, TaskStatus.APPROVED);
+    }
+
+    private Execution saveRunningExecution(TaskStatus... taskStatuses) {
         Department dept = departmentRepository.saveAndFlush(Department.builder().name("개발팀").build());
         User requester = saveUser(userRepository, passwordEncoder, "EMP001", false);
         Project project = projectRepository.saveAndFlush(Project.builder()
@@ -672,8 +693,9 @@ class AdminMiscApiTest {
                 .repository("git@internal:auth-service.git")
                 .baseCommit("9b2f4e1")
                 .build();
-        plan.addTask(task(1, TaskStatus.SUCCEEDED));
-        plan.addTask(task(2, TaskStatus.APPROVED));
+        for (int i = 0; i < taskStatuses.length; i++) {
+            plan.addTask(task(i + 1, taskStatuses[i]));
+        }
         plan = planRepository.saveAndFlush(plan);
         ReflectionTestUtils.setField(request, "currentPlanId", plan.getId());
         requestRepository.saveAndFlush(request);

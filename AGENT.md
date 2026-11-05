@@ -170,3 +170,5 @@ src/main/resources/
 - 실패 작업 재시도 Plan은 `Plan.retry`로 표시하며, 다시 제출돼도 결재 문서의 판을 만들지 않습니다.
 - `GlobalExceptionHandler`는 이미 보낸 응답이나 끊긴 연결에는 오류 본문을 쓰지 않습니다.
 - 감사 로그 action은 `AuditActionMapper`의 이벤트 이름으로 기록하고, 매핑이 없으면 `METHOD 경로`, 실패는 `_FAILED`를 붙이며, 성공한 GET·HEAD는 기록하지 않습니다.
+- 실행 중단(개별·전사 일괄) 시 실행 중이던 작업은 FAILED, 시작 전 작업은 SKIPPED로 바꿉니다.
+- DOC 작업의 `TASK_SUCCEEDED` 콜백을 받으면 `DocumentPublishService`가 같은 트랜잭션에서 `target`·`content.body`로 문서를 만들거나 다음 버전을 추가합니다(롤백도 복원 본문을 새 버전으로 쌓음). 프로젝트 행 잠금으로 직렬화하며, 본문이 비면 경고만 남기고 저장하지 않습니다.

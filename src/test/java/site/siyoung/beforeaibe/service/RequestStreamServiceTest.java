@@ -23,9 +23,13 @@ import site.siyoung.beforeaibe.entity.enums.RequestSource;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 
@@ -189,5 +193,70 @@ class RequestStreamServiceTest {
                 .contains("event:log")
                 .contains("\"sequence\":120")
                 .contains("\"webshellSignature\":\"c2ln\"");
+    }
+
+    // 실서버 Tomcat에서 끊긴 SSE 연결이 보인 동작을 재현함: 전송도 완료 처리도 IllegalStateException을 던짐
+    private static SseEmitter deadEmitter(RuntimeException failure) {
+        return new SseEmitter() {
+            @Override
+            public void send(SseEventBuilder builder) {
+                throw failure;
+            }
+
+            @Override
+            public synchronized void completeWithError(Throwable ex) {
+                throw new IllegalStateException("AsyncListener.onError() 이후 AsyncContext 사용");
+            }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<SseEmitter> addLogSubscriber(UUID requestId, SseEmitter emitter) {
+        Map<UUID, Set<SseEmitter>> emitters =
+                (Map<UUID, Set<SseEmitter>>) ReflectionTestUtils.getField(requestStreamService, "logEmitters");
+        Set<SseEmitter> subscribers = emitters.computeIfAbsent(requestId, id -> ConcurrentHashMap.newKeySet());
+        subscribers.add(emitter);
+        return subscribers;
+    }
+
+    private static ExecutionLogResponse logLine() {
+        return new ExecutionLogResponse(1, Instant.parse("2026-11-04T03:10:00Z"), null, "로그", "c2ln");
+    }
+
+    @Test
+    void 끊긴_구독자의_완료_처리가_실패해도_예외가_밖으로_나가지_않고_구독자를_정리한다() {
+        UUID requestId = UUID.randomUUID();
+        SseEmitter dead = deadEmitter(new IllegalStateException("이미 끊긴 연결"));
+        Set<SseEmitter> subscribers = addLogSubscriber(requestId, dead);
+
+        assertThatCode(() -> requestStreamService.publishLog(requestId, logLine())).doesNotThrowAnyException();
+
+        assertThat(subscribers).doesNotContain(dead);
+    }
+
+    @Test
+    void 끊긴_구독자가_있어도_살아_있는_구독자는_이벤트를_받는다() throws Exception {
+        UUID requestId = UUID.randomUUID();
+        MvcResult stream = mockMvc.perform(get("/logs/{id}", requestId))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        addLogSubscriber(requestId, deadEmitter(new IllegalStateException("이미 끊긴 연결")));
+
+        requestStreamService.publishLog(requestId, logLine());
+
+        assertThat(stream.getResponse().getContentAsString()).contains("event:log");
+    }
+
+    @Test
+    void 커밋_뒤_전송이_어떤_예외로_실패해도_호출한_쪽으로_전파되지_않는다() {
+        UUID requestId = UUID.randomUUID();
+        addLogSubscriber(requestId, deadEmitter(new IllegalArgumentException("예상하지 못한 전송 실패")));
+        TransactionSynchronizationManager.initSynchronization();
+
+        requestStreamService.publishLog(requestId, logLine());
+
+        // 승인 트랜잭션의 커밋 직후 콜백에서 예외가 나가면 웹쉘 실행 요청까지 가지 못함
+        assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+                .forEach(TransactionSynchronization::afterCommit)).doesNotThrowAnyException();
     }
 }
