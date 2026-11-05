@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import site.siyoung.beforeaibe.dto.admin.AdminSigningKeyView;
 import site.siyoung.beforeaibe.dto.admin.RegisterKeyRequest;
 import site.siyoung.beforeaibe.dto.admin.RegisterKeyResponse;
+import site.siyoung.beforeaibe.dto.admin.RevokeKeyRequest;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
 import site.siyoung.beforeaibe.security.AuthUser;
 import site.siyoung.beforeaibe.security.InternalNetworkOnly;
@@ -50,7 +51,9 @@ public class AdminSigningKeyController {
 
     @DeleteMapping("/{keyId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void revoke(@PathVariable UUID keyId) {
-        signingKeyAdminService.revoke(keyId);
+    public void revoke(@AuthenticationPrincipal AuthUser authUser,
+                       @PathVariable UUID keyId,
+                       @Valid @RequestBody(required = false) RevokeKeyRequest request) {
+        signingKeyAdminService.revoke(authUser.id(), keyId, request == null ? null : request.adminProof());
     }
 }

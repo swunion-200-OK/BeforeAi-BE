@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import site.siyoung.beforeaibe.dto.request.ExecutionLogResponse;
+import site.siyoung.beforeaibe.dto.request.ProgressNodeResponse;
 import site.siyoung.beforeaibe.entity.Request;
 
 import java.io.IOException;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 public class RequestStreamService {
 
     static final String NODE_UPDATED = "node.updated";
+    static final String NODE_ADDED = "node.added";
     static final String TREE_REPLACED = "tree.replaced";
     static final String HEARTBEAT = "heartbeat";
     static final String LOG = "log";
@@ -76,6 +78,11 @@ public class RequestStreamService {
         return "approval:pending:" + taskId + ":" + index;
     }
 
+    // STEP은 실행 세션마다 작업 하나에 하나씩 만들므로 실행 세션 id와 작업 id로 id를 만듦
+    static String stepNodeId(UUID executionId, UUID taskId) {
+        return "step:" + executionId + ":" + taskId;
+    }
+
     // 재연결 때 받은 Last-Event-ID가 현재 version과 다르면 지난 이벤트를 이어 줄 수 없으므로 tree.replaced로 전체 재조회를 지시
     public SseEmitter subscribeProgress(UUID requestId, long currentVersion, Long lastEventId) {
         SseEmitter emitter = register(progressEmitters, requestId);
@@ -99,6 +106,17 @@ public class RequestStreamService {
         UUID requestId = request.getId();
         afterCommit(() -> broadcast(progressEmitters, requestId,
                 SseEmitter.event().id(String.valueOf(version)).name(NODE_UPDATED).data(data)));
+    }
+
+    // 자식 노드가 생김 → node.added (API 명세서 4.9). 웹쉘 작업 이벤트로 STEP이 생길 때 씀
+    public void publishNodeAdded(Request request, String parentId, ProgressNodeResponse node) {
+        long version = request.increaseProgressVersion();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("parentId", parentId);
+        data.put("node", node);
+        UUID requestId = request.getId();
+        afterCommit(() -> broadcast(progressEmitters, requestId,
+                SseEmitter.event().id(String.valueOf(version)).name(NODE_ADDED).data(data)));
     }
 
     // Plan이 새로 생기거나 여러 노드가 한꺼번에 바뀜 → tree.replaced (클라이언트가 전체 트리를 다시 조회)
