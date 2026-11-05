@@ -3,6 +3,7 @@ package site.siyoung.beforeaibe.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.ai.RequestAnalysisDispatcher;
 import site.siyoung.beforeaibe.dto.request.PlanChangeRequest;
 import site.siyoung.beforeaibe.dto.request.PlanPatchRequest;
 import site.siyoung.beforeaibe.dto.request.PlanRetryResponse;
@@ -46,6 +47,7 @@ public class RequestPlanService {
     private final PlanRepository planRepository;
     private final PlanHashService planHashService;
     private final RequestStreamService requestStreamService;
+    private final RequestAnalysisDispatcher analysisDispatcher;
 
     @Transactional
     public RequestStatusResponse retryAnalysis(UUID userId, UUID requestId) {
@@ -57,7 +59,8 @@ public class RequestPlanService {
             throw new ApiException(ErrorCode.RETRY_LIMIT);
         }
         request.retryAnalysis();
-        // AI 분석기(Bedrock) 연동 전이라 상태만 ANALYZING으로 바꿈
+        // 커밋 후 비동기 재분석 시작
+        analysisDispatcher.dispatchAfterCommit(request.getId());
         requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                 request.getStatus().name());
         return RequestStatusResponse.from(request);
@@ -98,11 +101,14 @@ public class RequestPlanService {
             }
         }
 
-        // UPDATE의 instruction과 answer는 AI 분석기 입력. 분석기(Bedrock) 연동 전이라 아직 저장·전달하지 않음
+        // UPDATE의 instruction과 answer는 재분석 입력. answer는 분석기가 읽도록 clarification에 담아 두고,
+        // 분석이 성공하면 Plan 생성 시점에 해소된다(되물음이 없으면 clarification은 유지되지 않음).
         if (hasAnswer) {
-            request.clearClarification();
+            request.askClarification(patch.answer());
         }
         request.startReanalysis(planId);
+        // 커밋 후 비동기 재분석 시작
+        analysisDispatcher.dispatchAfterCommit(request.getId());
         if (planReplaced) {
             requestStreamService.publishTreeReplaced(request);
         } else {
