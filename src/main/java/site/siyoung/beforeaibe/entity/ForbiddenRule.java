@@ -19,6 +19,8 @@ import site.siyoung.beforeaibe.entity.enums.ForbiddenRuleStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 
 import java.util.UUID;
+import site.siyoung.beforeaibe.exception.ApiException;
+import site.siyoung.beforeaibe.exception.ErrorCode;
 
 // 확정된 부서 금지 규칙 (CORE-09). 서비스는 해제를 "요청"만 할 수 있고 실제 해제는 웹쉘 서버 콘솔에서 함 (5.7)
 @Getter
@@ -63,6 +65,10 @@ public class ForbiddenRule extends BaseTimeEntity {
     }
 
     public void requestRelease(String releaseReason) {
+        if (status != ForbiddenRuleStatus.CONFIRMED) {
+            throw new ApiException(
+                    ErrorCode.INVALID_STATE, "이미 해제를 요청한 규칙입니다");
+        }
         this.status = ForbiddenRuleStatus.RELEASE_PENDING;
         this.releaseReason = releaseReason;
     }

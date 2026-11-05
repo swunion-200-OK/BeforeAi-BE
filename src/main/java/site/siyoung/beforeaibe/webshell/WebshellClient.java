@@ -19,10 +19,12 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import site.siyoung.beforeaibe.dto.admin.AdminProof;
 
 // 내부망 웹쉘 API 호출 (5장). 웹 서비스 서버의 클라이언트 인증서로 mTLS 연결함.
 // 클라이언트 인증서는 Spring Boot SSL 번들(spring.ssl.bundle.*)로 등록하고 그 이름을 webshell.ssl-bundle에 적음.
-// 정책 배포·전사 중단(WebshellPolicyClient)은 아직 스텁이며, 5장 실제 구현 때 같은 주소·SSL 번들 설정을 씀
+// 정책 묶음은 같은 연결로 실제 배포한다. 기존 공개키 등록·폐기와 전사 중단 포트는 여전히 스텁임.
 @Slf4j
 @Component
 public class WebshellClient {
@@ -69,6 +71,19 @@ public class WebshellClient {
 
     private record KillBody(String reason) {
     }
+
+    public PolicyDeploymentClient.Result applyPolicy(Map<String, Object> policy, AdminProof proof) {
+        if (restClient == null) throw new ApiException(ErrorCode.WEBSHELL_UNAVAILABLE);
+        try {
+            return restClient.post().uri("/v1/policies").contentType(MediaType.APPLICATION_JSON)
+                    .body(new PolicyBody(policy, proof)).retrieve().body(PolicyDeploymentClient.Result.class);
+        } catch (RestClientException e) {
+            log.warn("웹쉘 정책 배포 요청 실패: {}", e.getClass().getSimpleName());
+            throw new ApiException(ErrorCode.WEBSHELL_UNAVAILABLE);
+        }
+    }
+
+    private record PolicyBody(Map<String, Object> policy, AdminProof adminProof) {}
 
     // 웹쉘 중단 응답. 서명 대상·직렬화 규칙이 명세에 없어 webshellSignature는 아직 검증하지 않음
     public record KillResult(UUID executionId, String status, String webshellSignature) {
