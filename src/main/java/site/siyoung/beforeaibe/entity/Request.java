@@ -81,6 +81,11 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.ANALYZING;
     }
 
+    // 에디터 변경 요청: 확정된 diff로 만든 Plan을 바로 현재 Plan으로 연결. 상태는 생성 시점 그대로 둠 (API 명세서 3.8)
+    public void attachPlan(UUID planId) {
+        this.currentPlanId = planId;
+    }
+
     public void submit() {
         this.status = RequestStatus.PENDING_APPROVAL;
     }
