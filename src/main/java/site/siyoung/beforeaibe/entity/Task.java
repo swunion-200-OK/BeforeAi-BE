@@ -20,6 +20,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
@@ -78,9 +79,15 @@ public class Task {
     @Column(nullable = false, length = 20)
     private TaskStatus status;
 
+    // AI 작업 설명(표시 전용). Plan 해시 대상이 아니고, AI가 만들지 않은 작업은 null
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private TaskExplanation explanation;
+
     @Builder
     private Task(int order, TaskType type, Risk risk, String title, String target, TaskContent content,
-                 List<UUID> relatedDepartments, List<RequiredApprover> requiredApprovers, TaskStatus status) {
+                 List<UUID> relatedDepartments, List<RequiredApprover> requiredApprovers, TaskStatus status,
+                 TaskExplanation explanation) {
         this.order = order;
         this.type = type;
         this.risk = risk;
@@ -90,9 +97,10 @@ public class Task {
         this.relatedDepartments = relatedDepartments;
         this.requiredApprovers = requiredApprovers;
         this.status = status;
+        this.explanation = explanation;
     }
 
-    // 새 Plan(삭제 반영·실패 작업 재시도)에 넣을 같은 내용의 작업. order는 원래 값을 유지함
+    // 새 Plan(삭제 반영·실패 작업 재시도)에 넣을 같은 내용의 작업. order는 원래 값을 유지하고 내용이 같으므로 설명도 유지함
     public Task copy(TaskStatus status) {
         return Task.builder()
                 .order(order)
@@ -104,6 +112,7 @@ public class Task {
                 .relatedDepartments(relatedDepartments)
                 .requiredApprovers(requiredApprovers)
                 .status(status)
+                .explanation(explanation)
                 .build();
     }
 

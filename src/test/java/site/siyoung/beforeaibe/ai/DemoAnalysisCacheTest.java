@@ -131,4 +131,24 @@ class DemoAnalysisCacheTest {
         verify(cache, never()).find(any());
         verify(persistence).applyResult(eq(requestId), eq(live));
     }
+
+    @Test
+    void 캐시_JSON의_explanation을_그대로_읽고_없으면_null이다() {
+        String json = """
+                {"entries": [{"prompt": "p", "tasks": [
+                  {"type": "DOC", "risk": "LOW", "title": "a", "target": "d.md", "body": "b",
+                   "explanation": {"summary": "문서를 만든다", "changes": [{"where": "d.md", "what": "새 문서", "after": "내용"}],
+                                   "impact": ["독자"], "undo": "문서 삭제"}},
+                  {"type": "DOC", "risk": "LOW", "title": "b", "target": "e.md", "body": "b"}
+                ]}]}""";
+        DemoAnalysisCache cache = new DemoAnalysisCache(true, 0, new ByteArrayResource(json.getBytes()));
+
+        List<AiTask> tasks = cache.find("p").orElseThrow().tasks();
+
+        assertThat(tasks.getFirst().explanation().summary()).isEqualTo("문서를 만든다");
+        assertThat(tasks.getFirst().explanation().changes().getFirst().before()).isNull();
+        assertThat(tasks.getFirst().explanation().changes().getFirst().after()).isEqualTo("내용");
+        assertThat(tasks.getFirst().explanation().undo()).isEqualTo("문서 삭제");
+        assertThat(tasks.getLast().explanation()).isNull();
+    }
 }
