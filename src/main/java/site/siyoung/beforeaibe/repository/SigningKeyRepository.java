@@ -20,6 +20,9 @@ public interface SigningKeyRepository extends JpaRepository<SigningKey, UUID> {
 
     boolean existsByPublicKey(String publicKey);
 
+    // 승인 서명 제출 때 키가 제출자 소유이고 웹쉘 정책에 등록(REGISTERED)됐는지 사전 검사 (3.6 CORE-05)
+    boolean existsByIdAndUserIdAndStatus(UUID id, UUID userId, SigningKeyStatus status);
+
     List<SigningKey> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Limit limit);
 
     // 관리자 전체 공개키 목록 (최신순)

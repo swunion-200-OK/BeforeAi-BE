@@ -96,6 +96,16 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.PENDING_APPROVAL;
     }
 
+    // 현재 Plan의 작업이 모두 승인되고 웹쉘이 실행을 받아들이면 실행 중으로 전이
+    public void startRunning() {
+        this.status = RequestStatus.RUNNING;
+    }
+
+    // 승인권자가 작업을 거부하면 요청을 거부 상태로 둠
+    public void reject() {
+        this.status = RequestStatus.REJECTED;
+    }
+
     public void cancel() {
         this.status = RequestStatus.CANCELED;
     }

@@ -78,6 +78,11 @@ public class Plan extends BaseTimeEntity {
         this.planHash = planHash;
     }
 
+    // 웹쉘이 실행을 받아들이며 돌려준 서명을 보관함 (POST /v1/executions 응답)
+    public void assignExecutorSignature(String executorSignature) {
+        this.executorSignature = executorSignature;
+    }
+
     // Task 추가는 addTask()로만 하도록 읽기 전용으로 노출
     public List<Task> getTasks() {
         return Collections.unmodifiableList(tasks);
