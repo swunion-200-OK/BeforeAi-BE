@@ -40,7 +40,8 @@ class DemoAnalysisCacheTest {
         assertThat(result.tasks()).extracting(AiTask::type, AiTask::risk)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(TaskType.DOC, Risk.LOW));
         assertThat(result.tasks().getFirst().target()).isEqualTo("docs/incident-guide.md");
-        assertThat(result.tasks().getFirst().body()).startsWith("# 장애 대응 가이드");
+        assertThat(result.tasks().getFirst().body()).startsWith("# 장애 대응 절차");
+        assertThat(result.tasks().getFirst().explanation().summary()).isNotBlank();
     }
 
     @Test
@@ -52,6 +53,8 @@ class DemoAnalysisCacheTest {
                 org.assertj.core.groups.Tuple.tuple(TaskType.DOC, Risk.LOW),
                 org.assertj.core.groups.Tuple.tuple(TaskType.DEPLOY, Risk.HIGH));
         assertThat(result.tasks().getLast().command()).isEqualTo("./deploy.sh production");
+        // 시연 화면의 AI 설명이 비지 않도록 모든 작업에 설명이 있어야 함
+        assertThat(result.tasks()).allSatisfy(task -> assertThat(task.explanation().summary()).isNotBlank());
     }
 
     @Test
