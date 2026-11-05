@@ -1,6 +1,8 @@
 package site.siyoung.beforeaibe.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import site.siyoung.beforeaibe.entity.ExecutionEvent;
 
 import java.util.Collection;
@@ -9,11 +11,15 @@ import java.util.UUID;
 
 public interface ExecutionEventRepository extends JpaRepository<ExecutionEvent, UUID> {
 
-    // 같은 이벤트가 다시 오면 한 번만 반영
+    // 웹쉘이 같은 이벤트를 다시 보내도 한 번만 반영하기 위한 중복 확인
     boolean existsByEventId(UUID eventId);
 
-    boolean existsByTask_IdAndType(UUID taskId, String type);
-
-    // 진행 트리의 STEP 노드 (작업별 실행 이벤트)
-    List<ExecutionEvent> findByTask_IdInOrderByOccurredAtAscIdAsc(Collection<UUID> taskIds);
+    // 진행 트리 STEP 노드를 만들 Plan의 작업 이벤트. 웹쉘이 기록한 시각 순
+    @Query("""
+            select ev from ExecutionEvent ev join fetch ev.execution e
+            where e.plan.id = :planId and ev.task is not null and ev.type in :types
+            order by ev.occurredAt asc, ev.createdAt asc
+            """)
+    List<ExecutionEvent> findTaskEventsByPlanId(@Param("planId") UUID planId,
+                                                @Param("types") Collection<String> types);
 }

@@ -1,18 +1,22 @@
 package site.siyoung.beforeaibe.entity.enums;
 
-// 웹쉘 콜백 이벤트 종류 (POST /internal/executions/{executionId}/events). 원문 명세에 목록이 없어 웹쉘과 합의할 계약으로 정함.
-// ExecutionEvent.type 컬럼은 받은 값을 그대로 남기도록 문자열로 둠
+// 웹쉘 실행 이벤트 콜백의 종류. 계약은 .docs/webshell-callback-events.md.
+// ExecutionEvent.type 컬럼은 계약 확정 전이라 문자열로 두고, 받을 때 이 enum으로 검증함
 public enum ExecutionEventType {
-    // taskId 필수. 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드 추가
     TASK_STARTED,
-    // taskId 필수. 작업 → SUCCEEDED
     TASK_SUCCEEDED,
-    // taskId 필수. 작업 → FAILED
     TASK_FAILED,
-    // data.sequence(정수)·data.message(문자열). 실행 로그 한 줄
     LOG,
-    // data.status(COMPLETED|PARTIALLY_COMPLETED|FAILED). 실행·요청의 최종 상태 확정
     EXECUTION_FINISHED,
-    // 검증 실패·정책 불일치 경보. 이벤트만 저장함
-    ALERT
+    VERIFICATION_ALERT,
+    POLICY_MISMATCH;
+
+    // 경보는 실행 상태와 관계없이 받고 상태를 바꾸지 않음
+    public boolean isAlert() {
+        return this == VERIFICATION_ALERT || this == POLICY_MISMATCH;
+    }
+
+    public boolean isTaskEvent() {
+        return this == TASK_STARTED || this == TASK_SUCCEEDED || this == TASK_FAILED;
+    }
 }

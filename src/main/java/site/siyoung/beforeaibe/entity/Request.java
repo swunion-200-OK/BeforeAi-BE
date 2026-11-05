@@ -15,6 +15,8 @@ import lombok.NoArgsConstructor;
 import site.siyoung.beforeaibe.entity.enums.RequestSource;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Getter
@@ -22,6 +24,11 @@ import java.util.UUID;
 @Table(name = "requests")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Request extends BaseTimeEntity {
+
+    // 웹쉘 실행이 끝난 뒤의 요청 상태. 중단(KILLED)은 kill()로 따로 바꿈
+    private static final Set<RequestStatus> EXECUTION_FINAL_STATUSES = EnumSet.of(
+            RequestStatus.COMPLETED, RequestStatus.PARTIALLY_COMPLETED, RequestStatus.FAILED,
+            RequestStatus.ROLLED_BACK, RequestStatus.ROLLBACK_FAILED);
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -75,6 +82,22 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.ANALYZING;
     }
 
+    // AI 분석 성공: 생성된 Plan을 현재 Plan으로 두고 검토 대기로 전이
+    public void finishAnalysisWithPlan(UUID planId) {
+        this.currentPlanId = planId;
+        this.status = RequestStatus.REVIEWING;
+    }
+
+    // AI 분석이 되물음(clarification)만 남긴 경우: Plan 없이 검토 대기로 전이(요청자가 answer로 재분석)
+    public void finishAnalysisWithoutPlan() {
+        this.status = RequestStatus.REVIEWING;
+    }
+
+    // AI 분석 실패: 재시도 가능한 실패 상태로 전이
+    public void failAnalysis() {
+        this.status = RequestStatus.ANALYSIS_FAILED;
+    }
+
     // Plan 수정·확인 질문 답변 뒤 재분석. 삭제를 반영한 새 Plan이 있으면 현재 Plan으로 바꿈
     public void startReanalysis(UUID planId) {
         this.currentPlanId = planId;
@@ -106,6 +129,19 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.ROLLING_BACK;
     }
 
+    // 웹쉘이 승인 서명 검증(POST /v1/executions 403)을 거부하면 실행 세션 없이 검증 실패로 둠
+    public void failVerification() {
+        this.status = RequestStatus.VERIFICATION_FAILED;
+    }
+
+    // 웹쉘 콜백의 최종 상태 이벤트로 실행을 끝냄. 실행이 끝난 뒤의 상태만 받음 (API 명세서 5 콜백)
+    public void finishExecution(RequestStatus finalStatus) {
+        if (!EXECUTION_FINAL_STATUSES.contains(finalStatus)) {
+            throw new IllegalArgumentException("실행 최종 상태가 아닙니다: " + finalStatus);
+        }
+        this.status = finalStatus;
+    }
+
     // 승인권자가 작업을 거부하면 요청을 거부 상태로 둠
     public void reject() {
         this.status = RequestStatus.REJECTED;
@@ -123,11 +159,6 @@ public class Request extends BaseTimeEntity {
 
     public void kill() {
         this.status = RequestStatus.KILLED;
-    }
-
-    // 웹쉘이 실행 종료를 알리면 최종 상태로 전이 (COMPLETED·PARTIALLY_COMPLETED·FAILED·ROLLED_BACK·ROLLBACK_FAILED)
-    public void finishExecution(RequestStatus status) {
-        this.status = status;
     }
 
     public void askClarification(String clarification) {

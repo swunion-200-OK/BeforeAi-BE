@@ -10104,7 +10104,7 @@
                 "events"
               ]
             },
-            "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+            "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보. 이벤트마다 웹쉘 서명을 붙임 (mTLS)\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n권한: 웹쉘 서버의 클라이언트 인증서(mTLS) / 망: 내부망. 서버 간 mTLS 인증. 해당 목적지 호스트에 역할에 맞는 클라이언트 인증서를 설정합니다.\n\n**입력**\n경로 변수: `executionId` → `{{executionId}}`.\n\nexecutionId: 실행 ID. eventId/type/at/data/webshellSignature 등 모든 이벤트 필드와 응답 코드는 명세에 없는 예시입니다. 이벤트마다 실제 웹쉘 서명이 필요합니다.\n\n**응답**\n204 No Content 예시. 응답 본문은 없습니다.\n\n**처리 흐름·제약**\n방향은 웹쉘→웹 서비스이며 대상 호스트는 baseUrl입니다. 전체 경로 /api/v1/internal/...에서 baseUrl에 이미 포함된 /api/v1을 중복하지 않습니다. 웹쉘의 클라이언트 인증서로 mTLS를 사용합니다. 작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 수신합니다. RUNNING/ROLLING_BACK에서 최종 상태 COMPLETED, PARTIALLY_COMPLETED, FAILED, ROLLED_BACK, ROLLBACK_FAILED로 전이할 수 있습니다. 검증된 실행 이벤트만 진행 트리 STEP에 반영합니다.\n\n**계약 확정 여부**\n이 API는 명세에 요청 또는 응답 스키마·성공 코드가 구체적으로 정의되지 않았습니다. 저장된 req/res의 필드명, 래퍼, 성공 코드는 사용 방법을 설명하기 위한 예시이며 확정 계약이 아닙니다.",
             "auth": {
               "type": "noauth"
             },
@@ -10115,7 +10115,7 @@
           },
           "response": [
             {
-              "name": "204 · 성공",
+              "name": "204 · 성공 · 스키마·상태코드 예시 / 계약 미정",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -10142,7 +10142,7 @@
                     "events"
                   ]
                 },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
+                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보. 이벤트마다 웹쉘 서명을 붙임 (mTLS)\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n권한: 웹쉘 서버의 클라이언트 인증서(mTLS) / 망: 내부망. 서버 간 mTLS 인증. 해당 목적지 호스트에 역할에 맞는 클라이언트 인증서를 설정합니다.\n\n**입력**\n경로 변수: `executionId` → `{{executionId}}`.\n\nexecutionId: 실행 ID. eventId/type/at/data/webshellSignature 등 모든 이벤트 필드와 응답 코드는 명세에 없는 예시입니다. 이벤트마다 실제 웹쉘 서명이 필요합니다.\n\n**응답**\n204 No Content 예시. 응답 본문은 없습니다.\n\n**처리 흐름·제약**\n방향은 웹쉘→웹 서비스이며 대상 호스트는 baseUrl입니다. 전체 경로 /api/v1/internal/...에서 baseUrl에 이미 포함된 /api/v1을 중복하지 않습니다. 웹쉘의 클라이언트 인증서로 mTLS를 사용합니다. 작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 수신합니다. RUNNING/ROLLING_BACK에서 최종 상태 COMPLETED, PARTIALLY_COMPLETED, FAILED, ROLLED_BACK, ROLLBACK_FAILED로 전이할 수 있습니다. 검증된 실행 이벤트만 진행 트리 STEP에 반영합니다.\n\n**계약 확정 여부**\n이 API는 명세에 요청 또는 응답 스키마·성공 코드가 구체적으로 정의되지 않았습니다. 저장된 req/res의 필드명, 래퍼, 성공 코드는 사용 방법을 설명하기 위한 예시이며 확정 계약이 아닙니다.",
                 "auth": {
                   "type": "noauth"
                 },
@@ -10156,198 +10156,6 @@
               "header": [],
               "cookie": [],
               "body": ""
-            },
-            {
-              "name": "401 · UNAUTHENTICATED",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json",
-                    "description": "JSON 응답 요청."
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json",
-                    "description": "UTF-8 JSON 요청 본문."
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "internal",
-                    "executions",
-                    "{{executionId}}",
-                    "events"
-                  ]
-                },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
-                "auth": {
-                  "type": "noauth"
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
-                }
-              },
-              "status": "Unauthorized",
-              "code": 401,
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"error\": {\n    \"code\": \"UNAUTHENTICATED\",\n    \"message\": \"웹쉘 서명을 확인할 수 없습니다\",\n    \"details\": {}\n  }\n}"
-            },
-            {
-              "name": "403 · INTERNAL_NETWORK_ONLY",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json",
-                    "description": "JSON 응답 요청."
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json",
-                    "description": "UTF-8 JSON 요청 본문."
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "internal",
-                    "executions",
-                    "{{executionId}}",
-                    "events"
-                  ]
-                },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
-                "auth": {
-                  "type": "noauth"
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
-                }
-              },
-              "status": "Forbidden",
-              "code": 403,
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"error\": {\n    \"code\": \"INTERNAL_NETWORK_ONLY\",\n    \"message\": \"내부망에서만 가능한 기능입니다\",\n    \"details\": {}\n  }\n}"
-            },
-            {
-              "name": "409 · INVALID_STATE",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json",
-                    "description": "JSON 응답 요청."
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json",
-                    "description": "UTF-8 JSON 요청 본문."
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "internal",
-                    "executions",
-                    "{{executionId}}",
-                    "events"
-                  ]
-                },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
-                "auth": {
-                  "type": "noauth"
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
-                }
-              },
-              "status": "Conflict",
-              "code": 409,
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"error\": {\n    \"code\": \"INVALID_STATE\",\n    \"message\": \"실행 중인 요청만 실행 결과를 반영할 수 있습니다\",\n    \"details\": {}\n  }\n}"
-            },
-            {
-              "name": "400 · VALIDATION_ERROR",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json",
-                    "description": "JSON 응답 요청."
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json",
-                    "description": "UTF-8 JSON 요청 본문."
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/internal/executions/{{executionId}}/events",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "internal",
-                    "executions",
-                    "{{executionId}}",
-                    "events"
-                  ]
-                },
-                "description": "**목적**\n작업 시작·성공·실패, 로그 조각, 최종 상태, 검증 실패·정책 불일치 경보를 웹쉘이 웹 서비스에 알립니다. 이벤트마다 웹쉘 서명을 붙입니다.\n\n**명세 위치**\n`.docs/api.md` 5.callback / `POST /api/v1/internal/executions/{executionId}/events` / 기능 5장 콜백\n\n**권한·접속 환경**\n사용자 토큰 없음. 내부망 출발지만 허용(외부망 `403 INTERNAL_NETWORK_ONLY`)하고, mTLS는 앱 앞단(TLS 종단)에서 맡습니다. 모든 이벤트는 웹쉘 서명이 확인돼야 반영됩니다.\n\n**서명 규칙 (웹쉘과 합의할 계약)**\n서명 대상 = 본문에서 `webshellSignature`를 뺀 객체(`eventId`, `type`, `executionId`, `requestId`, `taskId`(있을 때), `at`, `data`(있을 때))를 RFC 8785(JCS)로 정규화한 UTF-8 바이트. `webshellSignature` = Base64(Ed25519 서명), 확인 키 = `WEBSHELL_SIGNING_PUBLIC_KEY`(GET /v1/public-key의 Ed25519 키). 값은 문자열·정수·불리언·null·객체·배열만 씁니다(소수 불가). 서명이 맞지 않으면 `401 UNAUTHENTICATED`.\n\n**이벤트 종류**\n- `TASK_STARTED` (taskId 필수, data.message 선택): 작업 APPROVED → RUNNING, 진행 트리에 STEP 노드(`step:{taskId}`, 라벨 = data.message 또는 작업 대상) 추가\n- `TASK_SUCCEEDED` / `TASK_FAILED` (taskId 필수): 작업 → SUCCEEDED / FAILED. 이미 끝난 작업은 바꾸지 않음\n- `LOG` (data.sequence 0 이상 정수, data.message 문자열, taskId 선택): 실행 로그로 저장하고 로그 SSE로 보냄. 같은 실행의 같은 sequence는 처음 것만 둠\n- `EXECUTION_FINISHED` (data.status = COMPLETED | PARTIALLY_COMPLETED | FAILED): 실행·요청의 최종 상태 확정. 롤백 Plan이면 COMPLETED → ROLLED_BACK, 그 외 → ROLLBACK_FAILED. 끝나지 않은 작업(APPROVED·RUNNING)은 SKIPPED\n- `ALERT` (data 자유): 검증 실패·정책 불일치 경보. 이벤트로만 저장\n\n**응답**\n204 No Content. 같은 `eventId`가 다시 오면 반영하지 않고 204를 돌려줍니다.\n\n**처리 흐름·제약**\nTASK_*·EXECUTION_FINISHED는 요청이 RUNNING/ROLLING_BACK이고 실행 세션이 RUNNING일 때만 받습니다(아니면 `409 INVALID_STATE`). 경로와 본문의 executionId가 다르거나, 실행과 requestId가 맞지 않거나, 실행한 Plan에 없는 taskId, 모르는 type, 형식 오류는 `400 VALIDATION_ERROR`. 없는 실행·요청은 `404 NOT_FOUND`.\n\n**계약 확정 여부**\n원문 명세에는 이벤트 필드·종류·서명 규칙이 없어 구현에 맞춰 정했습니다. 웹쉘과 같은 규칙을 써야 합니다.",
-                "auth": {
-                  "type": "noauth"
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"type\": \"TASK_SUCCEEDED\",\n  \"executionId\": \"{{executionId}}\",\n  \"requestId\": \"{{requestId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"at\": \"2026-11-04T03:10:00Z\",\n  \"data\": {\n    \"status\": \"SUCCEEDED\",\n    \"message\": \"diff 적용 완료\"\n  },\n  \"webshellSignature\": \"{{webshellSignature}}\"\n}"
-                }
-              },
-              "status": "Bad Request",
-              "code": 400,
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"알 수 없는 이벤트 종류입니다: TASK_PAUSED\",\n    \"details\": {}\n  }\n}"
             }
           ]
         }

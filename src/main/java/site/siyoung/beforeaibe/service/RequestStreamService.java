@@ -73,14 +73,14 @@ public class RequestStreamService {
         return "approval:" + approvalId;
     }
 
-    // 작업 하나는 실행 세션에서 한 번 실행되므로 STEP 노드도 작업마다 하나 (웹쉘 콜백 TASK_* 이벤트로 만듦)
-    static String stepNodeId(UUID taskId) {
-        return "step:" + taskId;
-    }
-
     // 승인 대기 노드는 승인 기록이 없으므로 작업 id와 필요 승인권자 순번으로 id를 만듦
     static String pendingApprovalNodeId(UUID taskId, int index) {
         return "approval:pending:" + taskId + ":" + index;
+    }
+
+    // STEP은 실행 세션마다 작업 하나에 하나씩 만들므로 실행 세션 id와 작업 id로 id를 만듦
+    static String stepNodeId(UUID executionId, UUID taskId) {
+        return "step:" + executionId + ":" + taskId;
     }
 
     // 재연결 때 받은 Last-Event-ID가 현재 version과 다르면 지난 이벤트를 이어 줄 수 없으므로 tree.replaced로 전체 재조회를 지시
@@ -108,7 +108,7 @@ public class RequestStreamService {
                 SseEmitter.event().id(String.valueOf(version)).name(NODE_UPDATED).data(data)));
     }
 
-    // 새 노드가 생김 → node.added (실행 단계 시작 등)
+    // 자식 노드가 생김 → node.added (API 명세서 4.9). 웹쉘 작업 이벤트로 STEP이 생길 때 씀
     public void publishNodeAdded(Request request, String parentId, ProgressNodeResponse node) {
         long version = request.increaseProgressVersion();
         Map<String, Object> data = new LinkedHashMap<>();

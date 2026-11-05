@@ -63,13 +63,14 @@ public record ProgressNodeResponse(
                 null, null, null, null);
     }
 
-    // 실행 단계. 웹쉘 서명이 확인된 실행 이벤트로만 만들고 logRange로 해당 작업의 실행 로그 구간을 가리킴
+    // 웹쉘 작업 이벤트로 만든 실행 단계. 로그가 아직 없으면 logRange를 내려 주지 않음
     public static ProgressNodeResponse step(String id, String label, String status, LogRange logRange) {
-        return new ProgressNodeResponse(id, "STEP", label, status, null, null, null, null, null, null, null, null,
-                logRange, null);
+        return new ProgressNodeResponse(id, "STEP", label, status, null, null, null, null, null, null, null,
+                null, logRange, null);
     }
 
-    // 실행 로그 sequence 구간. 실행 중이면 to는 null
+    // STEP이 가리키는 실행 로그 sequence 구간. 실행 중이면 to가 null이며, 명세 예시처럼 null도 그대로 내려 줌
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record LogRange(Long from, Long to) {
     }
 }

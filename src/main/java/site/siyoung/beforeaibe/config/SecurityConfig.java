@@ -5,16 +5,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.preauth.x509.SubjectX500PrincipalExtractor;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -44,6 +49,44 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins:}")
     private List<String> allowedOrigins;
 
+    // 웹쉘 콜백을 보낼 수 있는 클라이언트 인증서의 CN. 비어 있으면 어떤 인증서도 받지 않음
+    @Value("${webshell.callback-client-cn:}")
+    private String webshellCallbackClientCn;
+
+    // 웹쉘 → 웹 서비스 콜백 (API 명세서 5 콜백). 사용자 JWT 대신 웹쉘 클라이언트 인증서(mTLS)로 인증함.
+    // 인증서 체인 검증은 서버 TLS(server.ssl.client-auth=want + 신뢰 저장소)가 하고, 여기서는 CN이 설정값과 같은지만 봄
+    @Bean
+    @Order(1)
+    public SecurityFilterChain internalCallbackFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/api/v1/internal/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .x509(x509 -> x509
+                        // 인증서 주체의 CN을 사용자 이름으로 씀
+                        .x509PrincipalExtractor(new SubjectX500PrincipalExtractor())
+                        .userDetailsService(webshellCertificateUserDetailsService()))
+                .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("WEBSHELL"))
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler));
+
+        return http.build();
+    }
+
+    private UserDetailsService webshellCertificateUserDetailsService() {
+        return commonName -> {
+            if (webshellCallbackClientCn == null || webshellCallbackClientCn.isBlank()
+                    || !webshellCallbackClientCn.equals(commonName)) {
+                throw new UsernameNotFoundException("허용되지 않은 웹쉘 클라이언트 인증서입니다");
+            }
+            return User.withUsername(commonName).password("").roles("WEBSHELL").build();
+        };
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -60,8 +103,6 @@ public class SecurityConfig {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/otp/verify",
                                 "/api/v1/auth/refresh").permitAll()
-                        // 웹쉘 콜백은 사용자 토큰이 없음. 내부망 출발지(@InternalNetworkOnly)와 이벤트의 웹쉘 서명으로 확인함
-                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/executions/*/events").permitAll()
                         // 기존에 열려 있던 API 문서와 오류 페이지, 헬스체크(actuator)는 인증 없이 열어 둠
                         .requestMatchers("/error", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()

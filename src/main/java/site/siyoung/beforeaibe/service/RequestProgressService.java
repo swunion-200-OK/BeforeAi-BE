@@ -8,7 +8,6 @@ import site.siyoung.beforeaibe.dto.request.ProgressNodeResponse;
 import site.siyoung.beforeaibe.dto.request.ProgressResponse;
 import site.siyoung.beforeaibe.entity.Approval;
 import site.siyoung.beforeaibe.entity.ExecutionEvent;
-import site.siyoung.beforeaibe.entity.ExecutionLog;
 import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
@@ -23,9 +22,9 @@ import site.siyoung.beforeaibe.repository.PlanRepository;
 import site.siyoung.beforeaibe.repository.UserRepository;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Comparator;
 import java.util.List;
-import java.util.LongSummaryStatistics;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -38,19 +37,23 @@ import static site.siyoung.beforeaibe.service.RequestStreamService.requestNodeId
 import static site.siyoung.beforeaibe.service.RequestStreamService.stepNodeId;
 import static site.siyoung.beforeaibe.service.RequestStreamService.taskNodeId;
 
-// 진행 상황 트리 (API 명세서 2.6, 4.9, CORE-14): REQUEST → PLAN → TASK → APPROVAL·STEP.
-// STEP 노드는 웹쉘 서명이 검증된 실행 이벤트(콜백 TASK_*)로만 만들고, 작업 하나에 하나씩 둠
+// 진행 상황 트리 (API 명세서 2.6, 4.9, CORE-14): REQUEST → PLAN → TASK → APPROVAL/STEP.
+// STEP은 웹쉘 콜백의 작업 이벤트(TASK_STARTED·SUCCEEDED·FAILED)로만 만들며, 실행 세션마다 작업 하나에 하나씩 둠
+// (.docs/webshell-callback-events.md). 웹쉘 서명은 서명 대상 규칙이 정해지지 않아 아직 검증하지 않음
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RequestProgressService {
 
+    private static final List<String> TASK_EVENT_TYPES = List.of(ExecutionEventType.TASK_STARTED.name(),
+            ExecutionEventType.TASK_SUCCEEDED.name(), ExecutionEventType.TASK_FAILED.name());
+
     private final RequestService requestService;
     private final PlanRepository planRepository;
     private final ApprovalRepository approvalRepository;
-    private final UserRepository userRepository;
     private final ExecutionEventRepository executionEventRepository;
     private final ExecutionLogRepository executionLogRepository;
+    private final UserRepository userRepository;
     private final RequestStreamService requestStreamService;
 
     public ProgressResponse getProgress(UUID userId, UUID requestId) {
@@ -87,25 +90,15 @@ public class RequestProgressService {
                         approvals.stream().map(Approval::getApproverId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(User::getId, Function.identity()));
 
-        List<Task> tasks = plan.getTasks().stream().sorted(Comparator.comparingInt(Task::getOrder)).toList();
-        List<UUID> taskIds = tasks.stream().map(Task::getId).toList();
-        Map<UUID, List<ExecutionEvent>> eventsByTask = executionEventRepository
-                .findByTask_IdInOrderByOccurredAtAscIdAsc(taskIds).stream()
-                .collect(Collectors.groupingBy(event -> event.getTask().getId()));
-        Map<UUID, LongSummaryStatistics> logsByTask = executionLogRepository.findByTask_IdIn(taskIds).stream()
-                .collect(Collectors.groupingBy(log -> log.getTask().getId(),
-                        Collectors.summarizingLong(ExecutionLog::getSequence)));
+        Map<UUID, List<ProgressNodeResponse>> stepsByTask = stepNodes(plan);
 
+        List<Task> tasks = plan.getTasks().stream().sorted(Comparator.comparingInt(Task::getOrder)).toList();
         List<ProgressNodeResponse> nodes = new ArrayList<>();
         String previousTaskNodeId = null;
         for (Task task : tasks) {
             List<String> dependsOn = previousTaskNodeId == null ? List.of() : List.of(previousTaskNodeId);
             List<ProgressNodeResponse> children = approvalNodes(task, approvals, approvers);
-            ProgressNodeResponse step = stepNode(task, eventsByTask.getOrDefault(task.getId(), List.of()),
-                    logsByTask.get(task.getId()));
-            if (step != null) {
-                children.add(step);
-            }
+            children.addAll(stepsByTask.getOrDefault(task.getId(), List.of()));
             nodes.add(ProgressNodeResponse.task(taskNodeId(task.getId()), task.getOrder() + ". " + task.getTitle(),
                     task.getType(), task.getRisk(), task.getStatus().name(), dependsOn, children));
             previousTaskNodeId = taskNodeId(task.getId());
@@ -134,32 +127,79 @@ public class RequestProgressService {
         return nodes;
     }
 
-    // 작업 이벤트(TASK_*)가 하나라도 있으면 STEP 노드를 만듦. 상태는 작업 상태를 따르고(실행 전 상태면 RUNNING),
-    // logRange는 그 작업의 실행 로그 sequence 구간이며 실행 중이면 to를 비움
-    private ProgressNodeResponse stepNode(Task task, List<ExecutionEvent> events, LongSummaryStatistics logs) {
-        List<ExecutionEvent> taskEvents = events.stream()
-                .filter(event -> event.getType().startsWith("TASK_"))
-                .toList();
-        if (taskEvents.isEmpty()) {
-            return null;
+    // 작업별 STEP 노드. 같은 실행 세션·작업의 이벤트를 하나의 STEP으로 묶고, 종료 이벤트가 있으면 그 상태를 씀
+    private Map<UUID, List<ProgressNodeResponse>> stepNodes(Plan plan) {
+        List<ExecutionEvent> events = executionEventRepository.findTaskEventsByPlanId(plan.getId(), TASK_EVENT_TYPES);
+        if (events.isEmpty()) {
+            return Map.of();
         }
-        String status = switch (task.getStatus()) {
-            case SUCCEEDED, FAILED, SKIPPED -> task.getStatus().name();
-            default -> TaskStatus.RUNNING.name();
-        };
-        Map<String, Object> startData = taskEvents.stream()
-                .filter(event -> event.getType().equals(ExecutionEventType.TASK_STARTED.name()))
-                .findFirst()
-                .map(ExecutionEvent::getData)
-                .orElse(Map.of());
-        ProgressNodeResponse.LogRange logRange = logs == null ? null
-                : new ProgressNodeResponse.LogRange(logs.getMin(),
-                status.equals(TaskStatus.RUNNING.name()) ? null : logs.getMax());
-        return ProgressNodeResponse.step(stepNodeId(task.getId()), stepLabel(task, startData), status, logRange);
+        Map<String, ExecutionLogRepository.LogRangeView> logRanges = executionLogRepository
+                .findLogRangesByPlanId(plan.getId()).stream()
+                .collect(Collectors.toMap(range -> stepNodeId(range.getExecutionId(), range.getTaskId()),
+                        Function.identity()));
+        Map<UUID, Task> tasksById = plan.getTasks().stream()
+                .collect(Collectors.toMap(Task::getId, Function.identity()));
+
+        // 첫 이벤트 순서대로 STEP을 둠
+        Map<String, StepState> steps = new LinkedHashMap<>();
+        for (ExecutionEvent event : events) {
+            UUID taskId = event.getTask().getId();
+            String stepId = stepNodeId(event.getExecution().getId(), taskId);
+            StepState state = steps.computeIfAbsent(stepId, id -> new StepState(taskId));
+            state.apply(ExecutionEventType.valueOf(event.getType()), event.getData(), tasksById.get(taskId));
+        }
+
+        Map<UUID, List<ProgressNodeResponse>> result = new LinkedHashMap<>();
+        steps.forEach((stepId, state) -> {
+            ExecutionLogRepository.LogRangeView range = logRanges.get(stepId);
+            ProgressNodeResponse.LogRange logRange = range == null ? null
+                    : new ProgressNodeResponse.LogRange(range.getFromSequence(),
+                    state.running() ? null : range.getToSequence());
+            result.computeIfAbsent(state.taskId, id -> new ArrayList<>())
+                    .add(ProgressNodeResponse.step(stepId, state.label, state.status.name(), logRange));
+        });
+        return result;
     }
 
-    // STEP 라벨: 시작 이벤트의 data.message, 없으면 작업 대상
-    static String stepLabel(Task task, Map<String, Object> startData) {
-        return startData.get("message") instanceof String message && !message.isBlank() ? message : task.getTarget();
+    // STEP 라벨: 웹쉘이 data.label로 단계 이름을 보내면 그 값, 없으면 작업 제목 (웹쉘 콜백 계약)
+    static String stepLabel(Map<String, Object> data, Task task) {
+        if (data != null && data.get("label") instanceof String label && !label.isBlank()) {
+            return label;
+        }
+        return task == null ? null : task.getTitle();
+    }
+
+    // STEP 상태: 시작 이벤트만 있으면 RUNNING, 종료 이벤트가 있으면 SUCCEEDED/FAILED
+    static TaskStatus stepStatus(ExecutionEventType type) {
+        return switch (type) {
+            case TASK_SUCCEEDED -> TaskStatus.SUCCEEDED;
+            case TASK_FAILED -> TaskStatus.FAILED;
+            default -> TaskStatus.RUNNING;
+        };
+    }
+
+    private static final class StepState {
+
+        private final UUID taskId;
+        private String label;
+        private TaskStatus status = TaskStatus.RUNNING;
+
+        private StepState(UUID taskId) {
+            this.taskId = taskId;
+        }
+
+        private void apply(ExecutionEventType type, Map<String, Object> data, Task task) {
+            if (label == null) {
+                label = stepLabel(data, task);
+            }
+            // 종료 상태가 정해진 뒤 늦게 온 시작 이벤트로 RUNNING에 되돌아가지 않음
+            if (type != ExecutionEventType.TASK_STARTED || running()) {
+                status = stepStatus(type);
+            }
+        }
+
+        private boolean running() {
+            return status == TaskStatus.RUNNING;
+        }
     }
 }

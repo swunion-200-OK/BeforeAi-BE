@@ -52,7 +52,7 @@
 - 실제 정책 배포는 기존 `WEBSHELL_BASE_URL`, `WEBSHELL_SSL_BUNDLE` 연결 설정을 사용한다. mTLS 운영에서는 HTTPS 주소와 인증서 번들을 함께 설정한다. 미설정 연결은 502다.
 - `webshell.policy-stub=true`를 명시한 경우에만 새 정책 배포용 개발 스텁을 사용한다. 기본값은 실제 HTTP 클라이언트다. 테스트 설정은 스텁을 사용한다.
 - `webshell.policy-retry-enabled=false`로 자동 재전송을 끌 수 있다. 간격은 `webshell.policy-retry-delay`(밀리초, 기본 30000)다.
-- 기존 공개키 등록·폐기와 kill-all의 `WebshellPolicyClient`는 기존 스텁을 유지한다. 새 정책 배포와 별개이며 실제 키 배포 완료로 해석하지 않는다.
+- 공개키 등록·폐기도 새 정책 버전을 만들어 같은 정책 배포 흐름으로 웹쉘에 반영한다(`SigningKeyCommandService`). kill-all은 웹쉘 `POST /v1/kill-all`을 실제로 호출한다. 기존 스텁 포트(`WebshellPolicyClient`)는 삭제했다.
 - 정책 API의 adminProof는 기존처럼 키 ID·서명 존재만 검사한다. 최근 추가된 공개키 등록용 Ed25519 검증 규칙과는 별개다. 최종 서명 검증은 웹쉘 책임이며 실제 서명 대상과 사전 서명 payload 전달 계약은 추가 합의가 필요하다.
 - 웹쉘 RELEASE_PENDING_LOCAL 처리, 실제 mTLS 인증서 연결, 서명 호환성은 실제 웹쉘 환경에서 별도 확인해야 한다. 자동 테스트의 HTTP 응답 모사와 개발 스텁만으로 검증 완료로 간주하지 않는다.
 

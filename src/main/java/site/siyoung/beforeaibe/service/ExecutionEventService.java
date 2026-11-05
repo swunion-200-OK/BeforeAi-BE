@@ -1,15 +1,15 @@
 package site.siyoung.beforeaibe.service;
 
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import site.siyoung.beforeaibe.dto.execution.ExecutionEventRequest;
 import site.siyoung.beforeaibe.dto.request.ExecutionLogResponse;
 import site.siyoung.beforeaibe.dto.request.ProgressNodeResponse;
+import site.siyoung.beforeaibe.dto.webshell.ExecutionEventRequest;
 import site.siyoung.beforeaibe.entity.Execution;
 import site.siyoung.beforeaibe.entity.ExecutionEvent;
 import site.siyoung.beforeaibe.entity.ExecutionLog;
-import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.enums.ExecutionEventType;
@@ -23,256 +23,187 @@ import site.siyoung.beforeaibe.repository.ExecutionEventRepository;
 import site.siyoung.beforeaibe.repository.ExecutionLogRepository;
 import site.siyoung.beforeaibe.repository.ExecutionRepository;
 import site.siyoung.beforeaibe.repository.RequestRepository;
-import site.siyoung.beforeaibe.support.Ed25519SignatureVerifier;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-// 웹쉘 서명 실행 이벤트 콜백 (5장 콜백, POST /internal/executions/{executionId}/events).
-// 웹쉘 서명(Ed25519, 본문에서 webshellSignature를 뺀 객체의 JCS)이 확인된 이벤트만 반영해 웹 서비스가 결과를 지어낼 수 없게 함
+import static site.siyoung.beforeaibe.service.RequestStreamService.stepNodeId;
+import static site.siyoung.beforeaibe.service.RequestStreamService.taskNodeId;
+
+// 웹쉘 실행 이벤트 콜백 처리 (API 명세서 5 콜백). 명세에 이벤트 계약이 없어 서버에서 정한 규칙을 따름.
+// 규칙 전체는 .docs/webshell-callback-events.md에 있고, 웹쉘 서명은 서명 대상 규칙이 없어 저장만 하고 검증하지 않음
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ExecutionEventService {
 
-    // 상태를 바꾸는 이벤트를 받을 수 있는 요청 상태 (API 명세서 6장 웹쉘 콜백 행)
+    private static final Set<TaskStatus> NOT_STARTED = EnumSet.of(TaskStatus.PENDING, TaskStatus.APPROVED);
+    private static final Set<TaskStatus> FINISHABLE = EnumSet.of(TaskStatus.APPROVED, TaskStatus.RUNNING);
     private static final Set<RequestStatus> EXECUTING = EnumSet.of(RequestStatus.RUNNING, RequestStatus.ROLLING_BACK);
-    // 아직 끝나지 않은 작업. 실행이 끝났는데 이 상태면 실행되지 않은 것으로 봄
-    private static final Set<TaskStatus> UNFINISHED = EnumSet.of(TaskStatus.APPROVED, TaskStatus.RUNNING);
     private static final Set<ExecutionStatus> FINAL_STATUSES = EnumSet.of(
             ExecutionStatus.COMPLETED, ExecutionStatus.PARTIALLY_COMPLETED, ExecutionStatus.FAILED);
 
-    private final RequestRepository requestRepository;
     private final ExecutionRepository executionRepository;
     private final ExecutionEventRepository executionEventRepository;
     private final ExecutionLogRepository executionLogRepository;
-    private final PlanHashService planHashService;
-    private final Ed25519SignatureVerifier signatureVerifier;
+    private final RequestRepository requestRepository;
     private final RequestStreamService requestStreamService;
-    private final String signingPublicKey;
-
-    public ExecutionEventService(RequestRepository requestRepository,
-                                 ExecutionRepository executionRepository,
-                                 ExecutionEventRepository executionEventRepository,
-                                 ExecutionLogRepository executionLogRepository,
-                                 PlanHashService planHashService,
-                                 Ed25519SignatureVerifier signatureVerifier,
-                                 RequestStreamService requestStreamService,
-                                 @Value("${webshell.signing-public-key:}") String signingPublicKey) {
-        this.requestRepository = requestRepository;
-        this.executionRepository = executionRepository;
-        this.executionEventRepository = executionEventRepository;
-        this.executionLogRepository = executionLogRepository;
-        this.planHashService = planHashService;
-        this.signatureVerifier = signatureVerifier;
-        this.requestStreamService = requestStreamService;
-        this.signingPublicKey = signingPublicKey;
-    }
 
     @Transactional
-    public void receive(UUID executionId, ExecutionEventRequest event) {
-        // DB를 보기 전에 서명부터 확인함
-        verifySignature(event);
-
-        UUID eventId = uuid(event.eventId(), "eventId");
-        ExecutionEventType type = type(event.type());
-        if (!executionId.equals(uuid(event.executionId(), "executionId"))) {
+    public void receive(UUID webshellExecutionId, ExecutionEventRequest body) {
+        if (!webshellExecutionId.equals(body.executionId())) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "경로와 본문의 executionId가 다릅니다");
         }
-        UUID requestId = uuid(event.requestId(), "requestId");
-        UUID taskId = event.taskId() == null ? null : uuid(event.taskId(), "taskId");
-        Instant at = instant(event.at());
-        Map<String, Object> data = event.data() == null ? Map.of() : event.data();
-
-        // 킬 스위치·다른 이벤트와 같은 요청 행 잠금으로 순서를 맞추고, 실행 세션은 잠근 뒤에 읽어 최신 상태를 봄
+        UUID requestId = executionRepository.findRequestIdByWebshellExecutionId(webshellExecutionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "실행 세션을 찾을 수 없습니다"));
+        if (!requestId.equals(body.requestId())) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "실행 세션의 요청과 requestId가 다릅니다");
+        }
+        // 같은 요청의 이벤트·중단 요청을 직렬화함. 실행 세션은 잠근 뒤에 읽어야 최신 상태를 봄
         Request request = requestRepository.findByIdForUpdate(requestId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "요청을 찾을 수 없습니다"));
-        Execution execution = executionRepository.findByWebshellExecutionId(executionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "실행을 찾을 수 없습니다"));
-        if (!execution.getRequest().getId().equals(request.getId())) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "실행과 요청이 맞지 않습니다");
-        }
-        // 웹쉘이 다시 보낸 이벤트는 이미 반영했으므로 성공으로 응답
-        if (executionEventRepository.existsByEventId(eventId)) {
+        Execution execution = executionRepository.findByWebshellExecutionId(webshellExecutionId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "실행 세션을 찾을 수 없습니다"));
+        // 이미 반영한 이벤트를 다시 받으면 아무것도 하지 않음 (웹쉘 재전송)
+        if (executionEventRepository.existsByEventId(body.eventId())) {
             return;
         }
-        Task task = taskId == null ? null : findTask(execution.getPlan(), taskId);
+
+        ExecutionEventType type = parseType(body.type());
+        Map<String, Object> data = body.data() == null ? Map.of() : body.data();
+        Task task = findTask(execution, body.taskId());
+        if (!type.isAlert() && execution.getStatus() != ExecutionStatus.RUNNING) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "실행 중인 세션이 아닙니다");
+        }
 
         switch (type) {
-            case TASK_STARTED, TASK_SUCCEEDED, TASK_FAILED -> {
-                requireExecuting(request, execution);
-                if (task == null) {
-                    throw new ApiException(ErrorCode.VALIDATION_ERROR, "작업 이벤트에는 taskId가 필요합니다");
-                }
-            }
-            case EXECUTION_FINISHED -> requireExecuting(request, execution);
-            case LOG, ALERT -> {
-            }
+            case TASK_STARTED -> changeTask(request, execution, requireTask(task), data, NOT_STARTED,
+                    TaskStatus.RUNNING);
+            case TASK_SUCCEEDED -> changeTask(request, execution, requireTask(task), data, FINISHABLE,
+                    TaskStatus.SUCCEEDED);
+            case TASK_FAILED -> changeTask(request, execution, requireTask(task), data, FINISHABLE,
+                    TaskStatus.FAILED);
+            case LOG -> saveLog(execution, request, task, body, data);
+            case EXECUTION_FINISHED -> finish(execution, request, data);
+            case VERIFICATION_ALERT, POLICY_MISMATCH -> log.warn("웹쉘 경보 수신: type={}, executionId={}, data={}",
+                    type, webshellExecutionId, data);
         }
 
         executionEventRepository.save(ExecutionEvent.builder()
-                .eventId(eventId)
+                .eventId(body.eventId())
                 .execution(execution)
                 .type(type.name())
                 .task(task)
-                .occurredAt(at)
+                .occurredAt(body.at())
                 .data(data)
-                .webshellSignature(event.webshellSignature())
+                .webshellSignature(body.webshellSignature())
                 .build());
+    }
 
-        switch (type) {
-            case TASK_STARTED -> taskStarted(request, task, data);
-            case TASK_SUCCEEDED -> taskFinished(request, task, TaskStatus.SUCCEEDED);
-            case TASK_FAILED -> taskFinished(request, task, TaskStatus.FAILED);
-            case LOG -> log(request, execution, task, at, data, event.webshellSignature());
-            case EXECUTION_FINISHED -> executionFinished(request, execution, data);
-            // 검증 실패·정책 불일치 경보는 이벤트로만 남김
-            case ALERT -> {
-            }
+    private static ExecutionEventType parseType(String type) {
+        try {
+            return ExecutionEventType.valueOf(type);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "지원하지 않는 이벤트 종류입니다");
         }
     }
 
-    private void taskStarted(Request request, Task task, Map<String, Object> data) {
-        if (task.getStatus() != TaskStatus.APPROVED) {
-            return;
+    // taskId가 있으면 이 실행 세션의 Plan 작업이어야 함
+    private static Task findTask(Execution execution, UUID taskId) {
+        if (taskId == null) {
+            return null;
         }
-        task.changeStatus(TaskStatus.RUNNING);
-        String taskNodeId = RequestStreamService.taskNodeId(task.getId());
-        requestStreamService.publishNodeUpdated(request, taskNodeId, task.getStatus().name());
-        requestStreamService.publishNodeAdded(request, taskNodeId, ProgressNodeResponse.step(
-                RequestStreamService.stepNodeId(task.getId()), RequestProgressService.stepLabel(task, data),
-                TaskStatus.RUNNING.name(), null));
+        return execution.getPlan().getTasks().stream()
+                .filter(task -> task.getId().equals(taskId))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.VALIDATION_ERROR, "실행 Plan에 없는 작업입니다"));
     }
 
-    // 시작 이벤트 없이 끝 이벤트가 먼저 와도 반영함. 이미 끝난 작업은 바꾸지 않음
-    private void taskFinished(Request request, Task task, TaskStatus status) {
-        if (!UNFINISHED.contains(task.getStatus())) {
-            return;
+    private static Task requireTask(Task task) {
+        if (task == null) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "taskId가 필요합니다");
         }
-        task.changeStatus(status);
-        if (!executionEventRepository.existsByTask_IdAndType(task.getId(), ExecutionEventType.TASK_STARTED.name())) {
-            // STEP 노드가 아직 없으므로 트리를 다시 받게 함
-            requestStreamService.publishTreeReplaced(request);
-            return;
-        }
-        requestStreamService.publishNodeUpdated(request, RequestStreamService.taskNodeId(task.getId()), status.name());
-        requestStreamService.publishNodeUpdated(request, RequestStreamService.stepNodeId(task.getId()), status.name());
+        return task;
     }
 
-    private void log(Request request, Execution execution, Task task, Instant at, Map<String, Object> data,
-                     String webshellSignature) {
-        long sequence = switch (data.get("sequence")) {
-            case Integer value when value >= 0 -> value;
-            case Long value when value >= 0 -> value;
-            case null, default -> throw new ApiException(ErrorCode.VALIDATION_ERROR,
-                    "LOG 이벤트에는 0 이상의 정수 data.sequence가 필요합니다");
-        };
-        if (!(data.get("message") instanceof String message)) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "LOG 이벤트에는 문자열 data.message가 필요합니다");
+    // 작업 상태를 바꾸고 진행 트리의 TASK·STEP 노드를 알림.
+    // 시작 이벤트를 받은(RUNNING) 작업은 STEP이 이미 있으므로 갱신하고, 없으면 STEP을 새로 추가함
+    private void changeTask(Request request, Execution execution, Task task, Map<String, Object> data,
+                            Set<TaskStatus> allowed, TaskStatus next) {
+        TaskStatus previous = task.getStatus();
+        if (!allowed.contains(previous)) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "현재 작업 상태에서 받을 수 없는 이벤트입니다");
         }
-        // 다른 eventId로 같은 줄이 다시 오면 처음 것만 둠
-        if (executionLogRepository.existsByExecution_IdAndSequence(execution.getId(), sequence)) {
-            return;
+        task.changeStatus(next);
+        requestStreamService.publishNodeUpdated(request, taskNodeId(task.getId()), next.name());
+
+        String stepId = stepNodeId(execution.getId(), task.getId());
+        if (previous == TaskStatus.RUNNING) {
+            requestStreamService.publishNodeUpdated(request, stepId, next.name());
+        } else {
+            requestStreamService.publishNodeAdded(request, taskNodeId(task.getId()), ProgressNodeResponse.step(
+                    stepId, RequestProgressService.stepLabel(data, task), next.name(), null));
+        }
+    }
+
+    private void saveLog(Execution execution, Request request, Task task, ExecutionEventRequest body,
+                         Map<String, Object> data) {
+        if (!(data.get("sequence") instanceof Number sequence) || !(data.get("message") instanceof String message)) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "로그 이벤트에는 data.sequence와 data.message가 필요합니다");
         }
         ExecutionLog saved = executionLogRepository.save(ExecutionLog.builder()
                 .execution(execution)
                 .request(request)
                 .task(task)
-                .sequence(sequence)
-                .loggedAt(at)
+                .sequence(sequence.longValue())
+                .loggedAt(body.at())
                 .message(message)
-                .webshellSignature(webshellSignature)
+                .webshellSignature(body.webshellSignature())
                 .build());
         requestStreamService.publishLog(request.getId(), ExecutionLogResponse.from(saved));
     }
 
-    // 최종 상태는 웹쉘이 보낸 값을 씀. 롤백 Plan이면 성공은 ROLLED_BACK, 그 외는 ROLLBACK_FAILED
-    private void executionFinished(Request request, Execution execution, Map<String, Object> data) {
-        ExecutionStatus status = finalStatus(data.get("status"));
-        execution.changeStatus(status);
-        Plan plan = execution.getPlan();
-        for (Task task : plan.getTasks()) {
-            if (UNFINISHED.contains(task.getStatus())) {
+    // 작업 결과를 서버가 지어내지 않도록, 종료 이벤트를 받지 않은(RUNNING) 작업이 남아 있으면 최종 상태를 받지 않음
+    private void finish(Execution execution, Request request, Map<String, Object> data) {
+        ExecutionStatus finalStatus = parseFinalStatus(data.get("status"));
+        if (!EXECUTING.contains(request.getStatus())) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "실행 중인 요청이 아닙니다");
+        }
+        if (execution.getPlan().getTasks().stream().anyMatch(task -> task.getStatus() == TaskStatus.RUNNING)) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "종료 이벤트를 받지 않은 작업이 있습니다");
+        }
+        execution.changeStatus(finalStatus);
+        request.finishExecution(requestStatus(execution.getPlan().getKind(), finalStatus));
+        for (Task task : execution.getPlan().getTasks()) {
+            if (NOT_STARTED.contains(task.getStatus())) {
                 task.changeStatus(TaskStatus.SKIPPED);
             }
-        }
-        if (plan.getKind() == PlanKind.ROLLBACK) {
-            request.finishExecution(status == ExecutionStatus.COMPLETED
-                    ? RequestStatus.ROLLED_BACK : RequestStatus.ROLLBACK_FAILED);
-        } else {
-            request.finishExecution(RequestStatus.valueOf(status.name()));
         }
         requestStreamService.publishTreeReplaced(request);
     }
 
-    private ExecutionStatus finalStatus(Object value) {
-        if (value instanceof String text) {
-            for (ExecutionStatus status : FINAL_STATUSES) {
-                if (status.name().equals(text)) {
-                    return status;
+    private static ExecutionStatus parseFinalStatus(Object value) {
+        if (value instanceof String status) {
+            try {
+                ExecutionStatus parsed = ExecutionStatus.valueOf(status);
+                if (FINAL_STATUSES.contains(parsed)) {
+                    return parsed;
                 }
+            } catch (IllegalArgumentException ignored) {
+                // 아래에서 같은 오류로 응답
             }
         }
         throw new ApiException(ErrorCode.VALIDATION_ERROR,
-                "EXECUTION_FINISHED 이벤트의 data.status는 COMPLETED, PARTIALLY_COMPLETED, FAILED 중 하나여야 합니다");
+                "data.status는 COMPLETED, PARTIALLY_COMPLETED, FAILED 중 하나여야 합니다");
     }
 
-    private void requireExecuting(Request request, Execution execution) {
-        if (!EXECUTING.contains(request.getStatus()) || execution.getStatus() != ExecutionStatus.RUNNING) {
-            throw new ApiException(ErrorCode.INVALID_STATE, "실행 중인 요청만 실행 결과를 반영할 수 있습니다");
+    // 문서 롤백 Plan은 ROLLED_BACK/ROLLBACK_FAILED로 끝남 (API 명세서 6장)
+    private static RequestStatus requestStatus(PlanKind kind, ExecutionStatus finalStatus) {
+        if (kind == PlanKind.ROLLBACK) {
+            return finalStatus == ExecutionStatus.COMPLETED ? RequestStatus.ROLLED_BACK : RequestStatus.ROLLBACK_FAILED;
         }
-    }
-
-    private void verifySignature(ExecutionEventRequest event) {
-        if (signingPublicKey == null || signingPublicKey.isBlank()) {
-            // 설정 누락. 웹쉘은 실패 응답을 받고 다시 보낼 수 있음
-            throw new ApiException(ErrorCode.INTERNAL_ERROR, "웹쉘 서명 공개키가 설정되지 않았습니다");
-        }
-        String canonical;
-        try {
-            canonical = planHashService.canonicalize(event.signedContent());
-        } catch (IllegalArgumentException e) {
-            // JCS 정규화 규칙에 없는 값(소수 등)은 서명 대상으로 쓰지 않음
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "서명 대상에 쓸 수 없는 값이 있습니다");
-        }
-        Ed25519SignatureVerifier.Result result = signatureVerifier.verify(signingPublicKey,
-                canonical.getBytes(StandardCharsets.UTF_8), event.webshellSignature());
-        if (result != Ed25519SignatureVerifier.Result.VALID) {
-            throw new ApiException(ErrorCode.UNAUTHENTICATED, "웹쉘 서명을 확인할 수 없습니다");
-        }
-    }
-
-    private Task findTask(Plan plan, UUID taskId) {
-        return plan.getTasks().stream()
-                .filter(task -> task.getId().equals(taskId))
-                .findFirst()
-                .orElseThrow(() -> new ApiException(ErrorCode.VALIDATION_ERROR, "실행한 Plan에 없는 작업입니다"));
-    }
-
-    private static ExecutionEventType type(String value) {
-        try {
-            return ExecutionEventType.valueOf(value);
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "알 수 없는 이벤트 종류입니다: " + value);
-        }
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            return UUID.fromString(value);
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, field + " 형식이 잘못되었습니다");
-        }
-    }
-
-    private static Instant instant(String value) {
-        try {
-            return Instant.parse(value);
-        } catch (DateTimeParseException e) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, "at 형식이 잘못되었습니다");
-        }
+        return RequestStatus.valueOf(finalStatus.name());
     }
 }

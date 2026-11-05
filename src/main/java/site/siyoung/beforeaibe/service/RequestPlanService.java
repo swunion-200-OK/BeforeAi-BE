@@ -3,6 +3,7 @@ package site.siyoung.beforeaibe.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.ai.RequestAnalysisDispatcher;
 import site.siyoung.beforeaibe.dto.request.PlanChangeRequest;
 import site.siyoung.beforeaibe.dto.request.PlanPatchRequest;
 import site.siyoung.beforeaibe.dto.request.PlanRetryResponse;
@@ -46,6 +47,7 @@ public class RequestPlanService {
     private final PlanRepository planRepository;
     private final PlanHashService planHashService;
     private final RequestStreamService requestStreamService;
+    private final RequestAnalysisDispatcher analysisDispatcher;
     // 제출 때 결재 문서 판을 같은 트랜잭션에서 만듦
     private final ApprovalDocumentService approvalDocumentService;
 
@@ -59,7 +61,8 @@ public class RequestPlanService {
             throw new ApiException(ErrorCode.RETRY_LIMIT);
         }
         request.retryAnalysis();
-        // AI 분석기(Bedrock) 연동 전이라 상태만 ANALYZING으로 바꿈
+        // 커밋 후 비동기 재분석 시작
+        analysisDispatcher.dispatchAfterCommit(request.getId());
         requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                 request.getStatus().name());
         return RequestStatusResponse.from(request);
@@ -100,11 +103,14 @@ public class RequestPlanService {
             }
         }
 
-        // UPDATE의 instruction과 answer는 AI 분석기 입력. 분석기(Bedrock) 연동 전이라 아직 저장·전달하지 않음
+        // answer는 재분석 입력으로 디스패처에 직접 넘기고, 되물음(clarification)은 명세대로 비운다.
+        String answer = hasAnswer ? patch.answer() : null;
         if (hasAnswer) {
             request.clearClarification();
         }
         request.startReanalysis(planId);
+        // 커밋 후 비동기 재분석 시작 (answer를 분석 입력으로 전달)
+        analysisDispatcher.dispatchAfterCommit(request.getId(), answer);
         if (planReplaced) {
             requestStreamService.publishTreeReplaced(request);
         } else {

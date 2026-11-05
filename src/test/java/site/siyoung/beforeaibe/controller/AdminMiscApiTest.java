@@ -1,34 +1,68 @@
 package site.siyoung.beforeaibe.controller;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import site.siyoung.beforeaibe.TestcontainersConfiguration;
+import site.siyoung.beforeaibe.entity.Department;
+import site.siyoung.beforeaibe.entity.Execution;
+import site.siyoung.beforeaibe.entity.Plan;
+import site.siyoung.beforeaibe.entity.Project;
+import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.SigningKey;
+import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.User;
+import site.siyoung.beforeaibe.entity.enums.ApproverRule;
+import site.siyoung.beforeaibe.entity.enums.ExecutionStatus;
+import site.siyoung.beforeaibe.entity.enums.PlanKind;
+import site.siyoung.beforeaibe.entity.enums.RequestSource;
+import site.siyoung.beforeaibe.entity.enums.RequestStatus;
+import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.SigningKeyStatus;
+import site.siyoung.beforeaibe.entity.enums.TaskStatus;
+import site.siyoung.beforeaibe.entity.enums.TaskType;
+import site.siyoung.beforeaibe.entity.value.RequiredApprover;
+import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.exception.ApiException;
+import site.siyoung.beforeaibe.exception.ErrorCode;
+import site.siyoung.beforeaibe.repository.DepartmentRepository;
+import site.siyoung.beforeaibe.repository.ExecutionRepository;
+import site.siyoung.beforeaibe.repository.PlanRepository;
+import site.siyoung.beforeaibe.repository.ProjectRepository;
+import site.siyoung.beforeaibe.repository.RequestRepository;
 import site.siyoung.beforeaibe.repository.SigningKeyRepository;
 import site.siyoung.beforeaibe.repository.UserRepository;
-import site.siyoung.beforeaibe.webshell.WebshellPolicyClient;
+import site.siyoung.beforeaibe.webshell.WebshellClient;
+import site.siyoung.beforeaibe.webshell.PolicyDeploymentClient;
 
 import java.security.KeyPair;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static site.siyoung.beforeaibe.controller.ApiTestSupport.bearer;
@@ -61,9 +95,29 @@ class AdminMiscApiTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    // 기본은 스텁(항상 성공) 동작을 그대로 쓰고, 웹쉘 반영 실패가 필요한 테스트에서만 결과를 바꿈
+    // 공개키 등록·폐기는 새 정책 버전으로 배포됨. 기본은 테스트 설정의 정책 배포 스텁(항상 성공)을 쓰고,
+    // 배포 실패나 배포한 정책 묶음 확인이 필요한 테스트에서만 결과를 바꾸거나 인자를 확인함
     @MockitoSpyBean
-    private WebshellPolicyClient webshellPolicyClient;
+    private PolicyDeploymentClient policyDeploymentClient;
+
+    // 전사 중단은 실제 웹쉘 호출(WebshellClient.killAll)이라 테스트에서는 응답을 지정함
+    @MockitoBean
+    private WebshellClient webshellClient;
+
+    @Autowired
+    private DepartmentRepository departmentRepository;
+
+    @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
+    private RequestRepository requestRepository;
+
+    @Autowired
+    private PlanRepository planRepository;
+
+    @Autowired
+    private ExecutionRepository executionRepository;
 
     private User admin;
 
@@ -107,6 +161,26 @@ class AdminMiscApiTest {
 
     private User employee() {
         return saveUser(userRepository, passwordEncoder, "EMP001", false);
+    }
+
+    // 정책 버전 1을 만듦(규모 프리셋 적용). 공개키 등록·폐기는 정책이 있어야 새 버전으로 배포됨
+    private void applyPreset(String token) throws Exception {
+        mockMvc.perform(put("/api/v1/admin/policy/preset").with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json")
+                        .content("""
+                                {"preset": "MEDIUM", "adminProof": {"keyId": "%s", "signature": "sig-example"}}
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isOk());
+    }
+
+    // 마지막으로 배포한 정책 묶음의 signingKeys[].keyId
+    @SuppressWarnings("unchecked")
+    private List<String> deployedSigningKeyIds() {
+        ArgumentCaptor<Map> payload = ArgumentCaptor.forClass(Map.class);
+        then(policyDeploymentClient).should(atLeastOnce()).apply(payload.capture(), any(), anyString());
+        List<Map<String, Object>> keys = (List<Map<String, Object>>) payload.getValue().get("signingKeys");
+        return keys.stream().map(key -> (String) key.get("keyId")).toList();
     }
 
     // --- 부서 ---
@@ -251,8 +325,72 @@ class AdminMiscApiTest {
                 .build());
 
         mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content(adminProofBody()))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void 정책이_있으면_공개키_등록은_새_정책_버전으로_배포되고_묶음에_그_키가_들어간다() throws Exception {
+        String token = adminToken();
+        applyPreset(token);
+        KeyPair adminKeyPair = ed25519KeyPair();
+        SigningKey adminKey = saveKey(admin, SigningKeyStatus.REGISTERED, rawPublicKey(adminKeyPair));
+        SigningKey key = saveKey(employee(), SigningKeyStatus.PENDING);
+
+        mockMvc.perform(post("/api/v1/admin/signing-keys/{keyId}/register", key.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content(registerProofBody(adminKey, adminKeyPair, key)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REGISTERED"))
+                .andExpect(jsonPath("$.policyVersion").value(2));
+
+        assertThat(deployedSigningKeyIds()).contains(key.getId().toString(), adminKey.getId().toString());
+    }
+
+    @Test
+    void 정책이_없으면_공개키만_등록되고_배포하지_않는다() throws Exception {
+        String token = adminToken();
+        KeyPair adminKeyPair = ed25519KeyPair();
+        SigningKey adminKey = saveKey(admin, SigningKeyStatus.PENDING, rawPublicKey(adminKeyPair));
+
+        mockMvc.perform(post("/api/v1/admin/signing-keys/{keyId}/register", adminKey.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content(registerProofBody(adminKey, adminKeyPair, adminKey)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.policyVersion").value(0));
+
+        then(policyDeploymentClient).should(never()).apply(any(), any(), any());
+    }
+
+    @Test
+    void 등록된_공개키를_폐기하면_그_키를_뺀_새_정책_버전이_배포된다() throws Exception {
+        String token = adminToken();
+        applyPreset(token);
+        SigningKey key = saveKey(admin, SigningKeyStatus.REGISTERED);
+
+        mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content(adminProofBody()))
+                .andExpect(status().isNoContent());
+
+        assertThat(deployedSigningKeyIds()).doesNotContain(key.getId().toString());
+        assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
+                .isEqualTo(SigningKeyStatus.REVOKED);
+    }
+
+    @Test
+    void 등록된_공개키를_adminProof_없이_폐기하면_400이고_상태는_그대로다() throws Exception {
+        String token = adminToken();
+        SigningKey key = saveKey(admin, SigningKeyStatus.REGISTERED);
+
+        mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+
+        assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
+                .isEqualTo(SigningKeyStatus.REGISTERED);
     }
 
     @Test
@@ -315,48 +453,58 @@ class AdminMiscApiTest {
     }
 
     @Test
-    void 웹쉘_등록에_실패하면_502이고_상태는_PENDING으로_남는다() throws Exception {
+    void 정책_배포에_실패하면_502이고_등록은_저장된_채_mutationCommitted가_true다() throws Exception {
         String token = adminToken();
+        applyPreset(token);
         KeyPair adminKeyPair = ed25519KeyPair();
         SigningKey adminKey = saveKey(admin, SigningKeyStatus.REGISTERED, rawPublicKey(adminKeyPair));
         SigningKey key = saveKey(employee(), SigningKeyStatus.PENDING);
-        willReturn(false).given(webshellPolicyClient).registerSigningKey(any(), any());
+        willThrow(new ApiException(ErrorCode.WEBSHELL_UNAVAILABLE))
+                .given(policyDeploymentClient).apply(any(), any(), any());
 
         mockMvc.perform(post("/api/v1/admin/signing-keys/{keyId}/register", key.getId()).with(internal())
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
                         .contentType("application/json").content(registerProofBody(adminKey, adminKeyPair, key)))
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"));
+                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.mutationCommitted").value(true));
 
-        assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
-                .isEqualTo(SigningKeyStatus.PENDING);
-    }
-
-    @Test
-    void 웹쉘_폐기에_실패하면_502이고_상태는_REGISTERED로_남는다() throws Exception {
-        String token = adminToken();
-        SigningKey key = saveKey(admin, SigningKeyStatus.REGISTERED);
-        willReturn(false).given(webshellPolicyClient).revokeSigningKey(any());
-
-        mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"));
-
+        // 정책 재전송이 다시 배포하므로 키는 등록된 상태로 남음
         assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
                 .isEqualTo(SigningKeyStatus.REGISTERED);
     }
 
     @Test
-    void 등록_대기_공개키는_웹쉘_호출_없이_폐기된다() throws Exception {
+    void 폐기한_정책_배포에_실패하면_502이고_폐기는_저장된_채_mutationCommitted가_true다() throws Exception {
         String token = adminToken();
+        applyPreset(token);
+        SigningKey key = saveKey(admin, SigningKeyStatus.REGISTERED);
+        willThrow(new ApiException(ErrorCode.WEBSHELL_UNAVAILABLE))
+                .given(policyDeploymentClient).apply(any(), any(), any());
+
+        mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content(adminProofBody()))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.mutationCommitted").value(true));
+
+        assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
+                .isEqualTo(SigningKeyStatus.REVOKED);
+    }
+
+    @Test
+    void 등록_대기_공개키는_관리자_서명과_정책_배포_없이_폐기된다() throws Exception {
+        String token = adminToken();
+        applyPreset(token);
         SigningKey key = saveKey(admin, SigningKeyStatus.PENDING);
+        clearInvocations(policyDeploymentClient);
 
         mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", key.getId()).with(internal())
                         .header(HttpHeaders.AUTHORIZATION, bearer(token)))
                 .andExpect(status().isNoContent());
 
-        then(webshellPolicyClient).should(never()).revokeSigningKey(any());
+        then(policyDeploymentClient).should(never()).apply(any(), any(), any());
         assertThat(signingKeyRepository.findById(key.getId()).orElseThrow().getStatus())
                 .isEqualTo(SigningKeyStatus.REVOKED);
     }
@@ -397,7 +545,8 @@ class AdminMiscApiTest {
                 .andExpect(jsonPath("$.status").value("REGISTERED"));
 
         mockMvc.perform(delete("/api/v1/admin/signing-keys/{keyId}", keyId).with(internal())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType("application/json").content(adminProofBody()))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/api/v1/me/signing-keys").with(internal())
@@ -437,6 +586,8 @@ class AdminMiscApiTest {
     @Test
     void 전사_실행을_일괄_중단한다() throws Exception {
         String token = adminToken();
+        given(webshellClient.killAll("긴급 중단"))
+                .willReturn(new WebshellClient.KillAllResult(List.of(), "KILLED", "c2ln"));
 
         mockMvc.perform(post("/api/v1/admin/kill-all").with(internal())
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
@@ -449,11 +600,104 @@ class AdminMiscApiTest {
     @Test
     void kill_all은_외부망에서도_허용된다() throws Exception {
         String token = adminToken();
+        given(webshellClient.killAll("긴급 중단"))
+                .willReturn(new WebshellClient.KillAllResult(List.of(), "KILLED", "c2ln"));
 
         mockMvc.perform(post("/api/v1/admin/kill-all").with(external())
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
                         .contentType("application/json").content("{\"reason\": \"긴급 중단\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("KILLED"));
+    }
+
+    @Test
+    void kill_all은_웹쉘이_중단한_실행을_KILLED로_바꾸고_시작하지_않은_작업을_SKIPPED로_바꾼다() throws Exception {
+        String token = adminToken();
+        Execution execution = saveRunningExecution();
+        given(webshellClient.killAll("긴급 중단")).willReturn(new WebshellClient.KillAllResult(
+                List.of(execution.getWebshellExecutionId()), "KILLED", "c2ln"));
+
+        mockMvc.perform(post("/api/v1/admin/kill-all").with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content("{\"reason\": \"긴급 중단\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionIds[0]").value(execution.getWebshellExecutionId().toString()));
+
+        Execution found = executionRepository.findById(execution.getId()).orElseThrow();
+        assertThat(found.getStatus()).isEqualTo(ExecutionStatus.KILLED);
+        assertThat(found.getKillReason()).isEqualTo("긴급 중단");
+        assertThat(requestRepository.findById(found.getRequest().getId()).orElseThrow().getStatus())
+                .isEqualTo(RequestStatus.KILLED);
+        assertThat(planRepository.findWithTasksById(found.getPlan().getId()).orElseThrow().getTasks())
+                .extracting(Task::getStatus)
+                .containsExactly(TaskStatus.SUCCEEDED, TaskStatus.SKIPPED);
+    }
+
+    @Test
+    void kill_all에서_웹쉘에_연결할_수_없으면_502이고_실행_상태는_그대로다() throws Exception {
+        String token = adminToken();
+        Execution execution = saveRunningExecution();
+        given(webshellClient.killAll(any())).willThrow(new ApiException(ErrorCode.WEBSHELL_UNAVAILABLE));
+
+        mockMvc.perform(post("/api/v1/admin/kill-all").with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType("application/json").content("{\"reason\": \"긴급 중단\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("WEBSHELL_UNAVAILABLE"));
+
+        assertThat(executionRepository.findById(execution.getId()).orElseThrow().getStatus())
+                .isEqualTo(ExecutionStatus.RUNNING);
+    }
+
+    // 실행 중인 요청 + 현재 Plan(성공한 작업 1개, 시작 전 작업 1개) + 실행 세션
+    private Execution saveRunningExecution() {
+        Department dept = departmentRepository.saveAndFlush(Department.builder().name("개발팀").build());
+        User requester = saveUser(userRepository, passwordEncoder, "EMP001", false);
+        Project project = projectRepository.saveAndFlush(Project.builder()
+                .name("인증 서비스")
+                .department(dept)
+                .repository("git@internal:auth-service.git")
+                .build());
+        Request request = requestRepository.saveAndFlush(Request.builder()
+                .projectId(project.getId())
+                .requesterId(requester.getId())
+                .prompt("스테이징에 배포해줘")
+                .source(RequestSource.PROMPT)
+                .status(RequestStatus.RUNNING)
+                .analysisAttempts(1)
+                .build());
+        Plan plan = Plan.builder()
+                .request(request)
+                .kind(PlanKind.NORMAL)
+                .repository("git@internal:auth-service.git")
+                .baseCommit("9b2f4e1")
+                .build();
+        plan.addTask(task(1, TaskStatus.SUCCEEDED));
+        plan.addTask(task(2, TaskStatus.APPROVED));
+        plan = planRepository.saveAndFlush(plan);
+        ReflectionTestUtils.setField(request, "currentPlanId", plan.getId());
+        requestRepository.saveAndFlush(request);
+        return executionRepository.saveAndFlush(Execution.builder()
+                .request(request)
+                .plan(plan)
+                .webshellExecutionId(UUID.randomUUID())
+                .planHash("sha256:4be1")
+                .status(ExecutionStatus.RUNNING)
+                .webshellSignature("c2ln")
+                .build());
+    }
+
+    private static Task task(int order, TaskStatus status) {
+        return Task.builder()
+                .order(order)
+                .type(TaskType.CODE_FEATURE)
+                .risk(Risk.MEDIUM)
+                .title("로그인 실패 메시지 변경 " + order)
+                .target("src/auth/login.ts")
+                .content(new TaskContent("--- a/src/auth/login.ts\n+++ b/src/auth/login.ts", null, null, null))
+                .relatedDepartments(List.of())
+                .requiredApprovers(List.of(new RequiredApprover(ApproverRule.ANYONE, 1, null)))
+                .status(status)
+                .build();
     }
 }
