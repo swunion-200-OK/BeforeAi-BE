@@ -385,6 +385,34 @@ class ApprovalApiTest {
         then(webshellClient).should().submitExecution(any());
     }
 
+    @Test
+    void 웹쉘이_승인_서명_검증을_거부하면_요청은_VERIFICATION_FAILED가_되고_실행_세션은_없다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL, codeTask(1, TaskStatus.PENDING));
+        Plan plan = currentPlan(request.getId());
+        String planHash = planHashService.hash(requestRepository.findById(request.getId()).orElseThrow(), plan);
+        SigningKey key = saveRegisteredKey(candidate, "candidate-key");
+        UUID taskId = plan.getTasks().getFirst().getId();
+        willThrow(new WebshellClient.VerificationFailedException(List.of("NONCE_ALREADY_USED")))
+                .given(webshellClient).submitExecution(any());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/approvals", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "planHash": "%s", "taskIds": ["%s"],
+                                 "keyId": "%s", "envelope": %s}"""
+                                .formatted(plan.getId(), planHash, taskId, key.getId(), ENVELOPE)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.executionRequested").value(true));
+
+        assertSavedApproval(plan, key, planHash, taskId);
+        Request found = requestRepository.findById(request.getId()).orElseThrow();
+        assertThat(found.getStatus()).isEqualTo(RequestStatus.VERIFICATION_FAILED);
+        assertThat(currentPlan(request.getId()).getExecutorSignature()).isNull();
+        assertThat(executionRepository.findAll()).noneMatch(e -> e.getRequest().getId().equals(request.getId()));
+    }
+
     private void assertSavedApproval(Plan plan, SigningKey key, String planHash, UUID taskId) {
         assertThat(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())).singleElement()
                 .satisfies(approval -> {

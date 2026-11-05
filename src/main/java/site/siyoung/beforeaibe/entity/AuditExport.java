@@ -58,6 +58,10 @@ public class AuditExport extends BaseTimeEntity {
 
     private Instant expiresAt;
 
+    // 만든 파일 내용. READY일 때만 있고, 만료되면 지움
+    @Column(columnDefinition = "bytea")
+    private byte[] fileContent;
+
     @Builder
     private AuditExport(User requester, ExportFormat format, ExportStatus status, AuditExportFilters filters,
                         int rowCount) {
@@ -74,11 +78,22 @@ public class AuditExport extends BaseTimeEntity {
         this.expiresAt = expiresAt;
     }
 
+    public void markReady(String fileName, byte[] fileContent, Instant expiresAt) {
+        markReady(fileName, expiresAt);
+        this.fileContent = fileContent;
+    }
+
     public void markFailed() {
         this.status = ExportStatus.FAILED;
     }
 
+    // 만료되면 파일을 지움 (준비 후 1시간 뒤 삭제)
     public void expire() {
         this.status = ExportStatus.EXPIRED;
+        this.fileContent = null;
+    }
+
+    public boolean isExpiredAt(Instant now) {
+        return status == ExportStatus.READY && expiresAt != null && !now.isBefore(expiresAt);
     }
 }

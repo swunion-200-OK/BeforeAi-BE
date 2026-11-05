@@ -5,6 +5,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.ai.RequestAnalysisDispatcher;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
 import site.siyoung.beforeaibe.dto.request.ApprovalResponse;
 import site.siyoung.beforeaibe.dto.request.PlanResponse;
@@ -56,6 +57,7 @@ public class RequestService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final RequestStreamService requestStreamService;
+    private final RequestAnalysisDispatcher analysisDispatcher;
 
     @Transactional
     public RequestStatusResponse create(UUID userId, RequestCreateRequest request) {
@@ -70,7 +72,8 @@ public class RequestService {
                 .status(RequestStatus.ANALYZING)
                 .analysisAttempts(FIRST_ANALYSIS_ATTEMPT)
                 .build());
-        // AI 분석기(Bedrock) 연동은 아직 없음. 연동하면 여기서 비동기 분석을 시작하고 결과로 REVIEWING/ANALYSIS_FAILED가 됨
+        // 커밋 후 비동기 AI 분석 시작. 분석기 비활성(Noop)이면 ANALYSIS_FAILED가 되어 수동 편집으로 진행
+        analysisDispatcher.dispatchAfterCommit(saved.getId());
         return RequestStatusResponse.from(saved);
     }
 
@@ -154,6 +157,12 @@ public class RequestService {
             throw new ApiException(ErrorCode.FORBIDDEN_ROLE, "요청자만 할 수 있습니다");
         }
         return request;
+    }
+
+    // 권한 규칙이 "요청자만"이 아닌 변경(문서 롤백)에서 씀. 권한 검사는 호출한 쪽에서 함. 요청 행을 잠금
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Request getRequestForUpdate(UUID requestId) {
+        return findForUpdate(requestId);
     }
 
     // 현재 Plan과 작업. 아직 Plan이 없으면(분석 전) 이 동작을 할 수 없음
