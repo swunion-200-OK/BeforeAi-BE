@@ -39,6 +39,8 @@ public class AuditExportFileService {
             "시각(KST)", "행위자", "부서", "동작", "프로젝트", "요청 ID", "작업 ID", "접속 환경", "IP", "결과", "상세");
     private static final String TASK_ID_SEPARATOR = ";";
     private static final String FAILED_ACTION_SUFFIX = "_FAILED";
+    // 접미사로 드러나지 않지만 실패로 봐야 하는 웹쉘 경보
+    private static final String POLICY_MISMATCH_ACTION = "POLICY_MISMATCH";
 
     private final AuditExportRepository auditExportRepository;
     private final AuditLogService auditLogService;
@@ -74,9 +76,13 @@ public class AuditExportFileService {
                 log.getTaskIds().stream().map(UUID::toString).collect(Collectors.joining(TASK_ID_SEPARATOR)),
                 log.getNetwork() == null ? "" : log.getNetwork().name(),
                 log.getIp() == null ? "" : log.getIp(),
-                // 결과는 동작 코드로 정함: *_FAILED(VERIFICATION_FAILED, TASK_FAILED 등)는 실패, 그 외는 성공
-                log.getAction().endsWith(FAILED_ACTION_SUFFIX) ? "실패" : "성공",
+                // 결과는 동작 코드로 정함: *_FAILED(VERIFICATION_FAILED, TASK_FAILED 등)와 POLICY_MISMATCH는 실패, 그 외는 성공
+                isFailure(log.getAction()) ? "실패" : "성공",
                 objectMapper.writeValueAsString(log.getDetail()));
+    }
+
+    private boolean isFailure(String action) {
+        return action.endsWith(FAILED_ACTION_SUFFIX) || action.equals(POLICY_MISMATCH_ACTION);
     }
 
     // 기간이 모두 있으면 audit-logs_{from}-{to}, 아니면 내보내기 시작 시각으로 이름을 붙임

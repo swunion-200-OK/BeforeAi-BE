@@ -67,6 +67,7 @@ public class ApprovalTransactionService {
     private final RejectionRepository rejectionRepository;
     private final ApprovalChangeRequestRepository changeRequestRepository;
     private final UserRepository userRepository;
+    private final AuditWriter auditWriter;
 
     // 승인 서명 저장 + 작업 상태 전이 (한 트랜잭션). 전량 승인 여부를 ApproveResult로 돌려줌
     @Transactional
@@ -174,6 +175,9 @@ public class ApprovalTransactionService {
             requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                     request.getStatus().name());
             requestStatusEventPublisher.publish(request, previousStatus, null);
+            // 이 분기는 커밋되므로 커밋 뒤에 감사 로그를 남김
+            auditWriter.recordAfterCommit(null, "VERIFICATION_FAILED", request.getId(), List.of(), null, null,
+                    Map.of("planId", plan.getId().toString(), "failedChecks", e.getFailedChecks()));
             return request.getStatus();
         }
 
@@ -195,6 +199,8 @@ public class ApprovalTransactionService {
         requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                 request.getStatus().name());
         requestStatusEventPublisher.publish(request, previousStatus, null);
+        auditWriter.recordAfterCommit(null, "EXECUTION_STARTED", request.getId(), List.of(), null, null,
+                Map.of("planId", plan.getId().toString()));
         return request.getStatus();
     }
 

@@ -169,3 +169,4 @@ src/main/resources/
 - 에디터 변경 요청은 202 ANALYZING으로 응답한 뒤, AI 분석 없이 커밋 직후 REVIEWING으로 넘어갑니다(`EditorReviewTransition`). 승인자는 위험도 MEDIUM 기준으로 정합니다.
 - 실패 작업 재시도 Plan은 `Plan.retry`로 표시하며, 다시 제출돼도 결재 문서의 판을 만들지 않습니다.
 - `GlobalExceptionHandler`는 이미 보낸 응답이나 끊긴 연결에는 오류 본문을 쓰지 않습니다.
+- 감사 로그 action은 `AuditActionMapper`의 이벤트 이름으로 기록하고, 매핑이 없으면 `METHOD 경로`, 실패는 `_FAILED`를 붙이며, 성공한 GET·HEAD는 기록하지 않습니다.

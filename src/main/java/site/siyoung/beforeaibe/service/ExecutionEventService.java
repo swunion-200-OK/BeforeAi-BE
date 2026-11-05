@@ -25,6 +25,7 @@ import site.siyoung.beforeaibe.repository.ExecutionRepository;
 import site.siyoung.beforeaibe.repository.RequestRepository;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -51,6 +52,7 @@ public class ExecutionEventService {
     private final RequestRepository requestRepository;
     private final RequestStreamService requestStreamService;
     private final RequestStatusEventPublisher requestStatusEventPublisher;
+    private final AuditWriter auditWriter;
 
     @Transactional
     public void receive(UUID webshellExecutionId, ExecutionEventRequest body) {
@@ -101,6 +103,29 @@ public class ExecutionEventService {
                 .data(data)
                 .webshellSignature(body.webshellSignature())
                 .build());
+        recordAudit(type, execution, requestId, body, task);
+    }
+
+    // 웹쉘 콜백은 감사 인터셉터 대상이 아니라 여기서 직접 남김. 커밋 뒤에 기록해 롤백된 이벤트는 남지 않음.
+    // data 원문은 민감할 수 있어 detail에 넣지 않음
+    private void recordAudit(ExecutionEventType type, Execution execution, UUID requestId,
+                             ExecutionEventRequest body, Task task) {
+        String action = switch (type) {
+            case TASK_SUCCEEDED -> "TASK_SUCCEEDED";
+            case TASK_FAILED -> "TASK_FAILED";
+            case VERIFICATION_ALERT -> "VERIFICATION_FAILED";
+            case POLICY_MISMATCH -> "POLICY_MISMATCH";
+            case EXECUTION_FINISHED -> execution.getPlan().getKind() != PlanKind.ROLLBACK ? null
+                    : execution.getStatus() == ExecutionStatus.COMPLETED ? "ROLLBACK_SUCCEEDED" : "ROLLBACK_FAILED";
+            case TASK_STARTED, LOG -> null;
+        };
+        if (action == null) {
+            return;
+        }
+        auditWriter.recordAfterCommit(null, action, requestId,
+                task == null ? List.of() : List.of(task.getId()), null, null,
+                Map.of("eventId", body.eventId().toString(), "type", type.name(),
+                        "executionId", body.executionId().toString()));
     }
 
     private static ExecutionEventType parseType(String type) {

@@ -49,6 +49,8 @@ import site.siyoung.beforeaibe.webshell.WebshellClient;
 import java.util.List;
 import java.util.UUID;
 
+import site.siyoung.beforeaibe.service.AuditWriter;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -116,6 +118,10 @@ class ApprovalApiTest {
 
     @MockitoBean
     private WebshellClient webshellClient;
+
+    // 실제로 커밋하는 테스트라, 비동기 감사 기록이 정리 SQL과 경합해 FK 오류를 내지 않게 막음
+    @MockitoBean
+    private AuditWriter auditWriter;
 
     private Project project;
     private User requester;
