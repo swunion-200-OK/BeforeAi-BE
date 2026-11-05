@@ -101,9 +101,20 @@ public class Request extends BaseTimeEntity {
         this.status = RequestStatus.RUNNING;
     }
 
+    // 문서 롤백 Plan(kind=ROLLBACK)의 승인이 모두 모이고 웹쉘이 실행을 받아들이면 롤백 중으로 전이
+    public void startRollingBack() {
+        this.status = RequestStatus.ROLLING_BACK;
+    }
+
     // 승인권자가 작업을 거부하면 요청을 거부 상태로 둠
     public void reject() {
         this.status = RequestStatus.REJECTED;
+    }
+
+    // 문서 롤백 Plan(kind=ROLLBACK)을 현재 Plan으로 두고 승인 대기로 올림. 승인 후 웹쉘 실행에서 ROLLING_BACK이 됨
+    public void startRollback(UUID planId) {
+        this.currentPlanId = planId;
+        this.status = RequestStatus.PENDING_APPROVAL;
     }
 
     public void cancel() {

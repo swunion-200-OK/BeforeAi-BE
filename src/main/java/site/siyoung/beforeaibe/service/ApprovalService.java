@@ -98,17 +98,19 @@ public class ApprovalService {
                     result.approvedTaskIds(), result.remainingTaskIds(), false);
         }
         // 전량 승인됨 → 웹쉘에 실행 요청. 연결 실패면 서명은 이미 보관됐으므로 executionRequested=false로만 응답
+        // 실행이 받아들여지면 RUNNING, 문서 롤백 Plan이면 ROLLING_BACK
         boolean executionRequested;
+        RequestStatus status;
         try {
-            approvalTransactionService.requestExecution(requestId, body.planId());
+            status = approvalTransactionService.requestExecution(requestId, body.planId());
             executionRequested = true;
         } catch (ApiException e) {
             if (e.getErrorCode() != ErrorCode.WEBSHELL_UNAVAILABLE) {
                 throw e;
             }
             executionRequested = false;
+            status = result.status();
         }
-        RequestStatus status = executionRequested ? RequestStatus.RUNNING : result.status();
         return new ApprovalSubmitResponse(result.requestId(), status,
                 result.approvedTaskIds(), result.remainingTaskIds(), executionRequested);
     }

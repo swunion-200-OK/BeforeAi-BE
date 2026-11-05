@@ -29,6 +29,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
+    // 문서 작업 diff(3.7 GET /requests/{id}/tasks/{taskId}/document)를 unified diff 형식으로 만듦
+    implementation 'io.github.java-diff-utils:java-diff-utils:4.15'
     implementation('dev.samstevens.totp:totp:1.7.1') {
         // QR 이미지는 만들지 않고 otpauth URI만 내려 주므로 zxing은 제외
         exclude group: 'com.google.zxing'

@@ -156,6 +156,12 @@ public class RequestService {
         return request;
     }
 
+    // 권한 규칙이 "요청자만"이 아닌 변경(문서 롤백)에서 씀. 권한 검사는 호출한 쪽에서 함. 요청 행을 잠금
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Request getRequestForUpdate(UUID requestId) {
+        return findForUpdate(requestId);
+    }
+
     // 현재 Plan과 작업. 아직 Plan이 없으면(분석 전) 이 동작을 할 수 없음
     public Plan getCurrentPlan(Request request) {
         if (request.getCurrentPlanId() == null) {

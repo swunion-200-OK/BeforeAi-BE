@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
+import site.siyoung.beforeaibe.dto.document.TaskDocumentResponse;
 import site.siyoung.beforeaibe.dto.request.ExecutionLogResponse;
 import site.siyoung.beforeaibe.dto.request.KillRequest;
 import site.siyoung.beforeaibe.dto.request.KillResponse;
@@ -28,18 +29,22 @@ import site.siyoung.beforeaibe.dto.request.RequestCreateRequest;
 import site.siyoung.beforeaibe.dto.request.RequestDetailResponse;
 import site.siyoung.beforeaibe.dto.request.RequestStatusResponse;
 import site.siyoung.beforeaibe.dto.request.RequestSummaryResponse;
+import site.siyoung.beforeaibe.dto.request.RollbackRequest;
+import site.siyoung.beforeaibe.dto.request.RollbackResponse;
 import site.siyoung.beforeaibe.dto.request.SubmitResponse;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 import site.siyoung.beforeaibe.security.AuthUser;
 import site.siyoung.beforeaibe.security.InternalNetworkOnly;
+import site.siyoung.beforeaibe.service.DocumentService;
 import site.siyoung.beforeaibe.service.RequestExecutionService;
 import site.siyoung.beforeaibe.service.RequestPlanService;
 import site.siyoung.beforeaibe.service.RequestProgressService;
+import site.siyoung.beforeaibe.service.RequestRollbackService;
 import site.siyoung.beforeaibe.service.RequestService;
 
 import java.util.UUID;
 
-// 작업 요청·Plan·실행 (API 명세서 3.5)
+// 작업 요청·Plan·실행 (API 명세서 3.5), 요청의 문서 작업·문서 롤백 (3.7)
 @RestController
 @RequestMapping("/api/v1/requests")
 @RequiredArgsConstructor
@@ -51,6 +56,8 @@ public class RequestController {
     private final RequestPlanService requestPlanService;
     private final RequestExecutionService requestExecutionService;
     private final RequestProgressService requestProgressService;
+    private final DocumentService documentService;
+    private final RequestRollbackService requestRollbackService;
 
     // 분석은 비동기라 202로 받고, 결과는 상세 조회로 확인함
     @InternalNetworkOnly
@@ -142,5 +149,20 @@ public class RequestController {
     public SseEmitter progressStream(@AuthenticationPrincipal AuthUser authUser, @PathVariable UUID requestId,
                                      @RequestHeader(name = LAST_EVENT_ID, required = false) Long lastEventId) {
         return requestProgressService.subscribeProgress(authUser.id(), requestId, lastEventId);
+    }
+
+    // 문서를 적용하지 않음. 적용·미적용은 approvals/rejections로 함
+    @GetMapping("/{requestId}/tasks/{taskId}/document")
+    public TaskDocumentResponse taskDocument(@AuthenticationPrincipal AuthUser authUser, @PathVariable UUID requestId,
+                                             @PathVariable UUID taskId) {
+        return documentService.taskDocument(authUser.id(), requestId, taskId);
+    }
+
+    // 롤백 Plan과 해시만 만듦. 문서 복원은 새 승인 서명이 모인 뒤 웹쉘이 실행함
+    @InternalNetworkOnly
+    @PostMapping("/{requestId}/rollback")
+    public RollbackResponse rollback(@AuthenticationPrincipal AuthUser authUser, @PathVariable UUID requestId,
+                                     @Valid @RequestBody RollbackRequest request) {
+        return requestRollbackService.rollback(authUser.id(), requestId, request);
     }
 }

@@ -5,6 +5,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
+import site.siyoung.beforeaibe.entity.enums.PlanKind;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskStatus;
@@ -16,11 +17,14 @@ import site.siyoung.beforeaibe.repository.RequestRepository;
 import site.siyoung.beforeaibe.repository.SigningKeyRepository;
 import site.siyoung.beforeaibe.webshell.WebshellClient;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -82,6 +86,37 @@ class ApprovalTransactionServiceTest {
         service.requestExecution(requestId, approvedPlanId);
 
         assertThat(request.getStatus()).isEqualTo(RequestStatus.RUNNING);
+        verifyNoInteractions(requestService, approvalRepository, executionRepository,
+                planHashService, requestStreamService, webshellClient);
+    }
+
+    @Test
+    void 롤백_Plan이_전량_승인되어_실행되면_ROLLING_BACK이_된다() {
+        Request request = lockedRequest(RequestStatus.PENDING_APPROVAL, approvedPlanId);
+        Plan plan = Plan.builder().request(request).kind(PlanKind.ROLLBACK).build();
+        ReflectionTestUtils.setField(plan, "id", approvedPlanId);
+        plan.addTask(Task.builder().risk(Risk.LOW).status(TaskStatus.APPROVED).build());
+        when(requestService.getCurrentPlan(request)).thenReturn(plan);
+        when(planHashService.hashTarget(request, plan)).thenReturn(Map.of());
+        when(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(approvedPlanId)).thenReturn(List.of());
+        when(webshellClient.submitExecution(any())).thenReturn(
+                new WebshellClient.ExecutionResult(UUID.randomUUID(), "sha256:abc", "RUNNING", "base64sig"));
+
+        RequestStatus status = service.requestExecution(requestId, approvedPlanId);
+
+        assertThat(status).isEqualTo(RequestStatus.ROLLING_BACK);
+        assertThat(request.getStatus()).isEqualTo(RequestStatus.ROLLING_BACK);
+        assertThat(plan.getExecutorSignature()).isEqualTo("base64sig");
+    }
+
+    @Test
+    void 롤백이_이미_실행_중이면_중복_실행을_요청하지_않는다() {
+        Request request = lockedRequest(RequestStatus.ROLLING_BACK, approvedPlanId);
+
+        RequestStatus status = service.requestExecution(requestId, approvedPlanId);
+
+        assertThat(status).isEqualTo(RequestStatus.ROLLING_BACK);
+        assertThat(request.getStatus()).isEqualTo(RequestStatus.ROLLING_BACK);
         verifyNoInteractions(requestService, approvalRepository, executionRepository,
                 planHashService, requestStreamService, webshellClient);
     }

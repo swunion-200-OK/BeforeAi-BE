@@ -14,6 +14,7 @@ import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.enums.ExecutionStatus;
 import site.siyoung.beforeaibe.entity.enums.Network;
+import site.siyoung.beforeaibe.entity.enums.PlanKind;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.SigningKeyStatus;
@@ -119,18 +120,18 @@ public class ApprovalTransactionService {
                 readyToExecute);
     }
 
-    // 웹쉘 실행 요청 (별도 트랜잭션). 성공하면 Execution 저장·Plan 서명 보관·요청 RUNNING으로 전이.
-    // WEBSHELL_UNAVAILABLE이면 이 트랜잭션만 롤백되고 saveApproval 커밋은 유지됨
+    // 웹쉘 실행 요청 (별도 트랜잭션). 성공하면 Execution 저장·Plan 서명 보관·요청 RUNNING(롤백 Plan이면 ROLLING_BACK)으로
+    // 전이하고 바뀐 상태를 돌려줌. WEBSHELL_UNAVAILABLE이면 이 트랜잭션만 롤백되고 saveApproval 커밋은 유지됨
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void requestExecution(UUID requestId, UUID expectedPlanId) {
+    public RequestStatus requestExecution(UUID requestId, UUID expectedPlanId) {
         Request request = findForUpdate(requestId);
         // 승인 저장 커밋 뒤 실행 잠금을 다시 얻기 전까지 요청 취소·Plan 변경이 끼어들 수 있음
         if (!expectedPlanId.equals(request.getCurrentPlanId())) {
             throw new ApiException(ErrorCode.INVALID_STATE, "승인한 Plan이 변경되었습니다");
         }
         // 다른 승인이 먼저 실행을 올렸으면 건너뜀
-        if (request.getStatus() == RequestStatus.RUNNING) {
-            return;
+        if (request.getStatus() == RequestStatus.RUNNING || request.getStatus() == RequestStatus.ROLLING_BACK) {
+            return request.getStatus();
         }
         if (!APPROVABLE.contains(request.getStatus())) {
             throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 실행할 수 있습니다");
@@ -163,9 +164,15 @@ public class ApprovalTransactionService {
                 .status(ExecutionStatus.RUNNING)
                 .webshellSignature(result.webshellSignature())
                 .build());
-        request.startRunning();
+        // 문서 롤백 Plan은 ROLLING_BACK → ROLLED_BACK/ROLLBACK_FAILED로 진행됨 (API 명세서 6장)
+        if (plan.getKind() == PlanKind.ROLLBACK) {
+            request.startRollingBack();
+        } else {
+            request.startRunning();
+        }
         requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
                 request.getStatus().name());
+        return request.getStatus();
     }
 
     @Transactional
