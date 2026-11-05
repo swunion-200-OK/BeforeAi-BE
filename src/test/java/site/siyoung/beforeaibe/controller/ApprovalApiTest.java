@@ -1,17 +1,21 @@
 package site.siyoung.beforeaibe.controller;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import site.siyoung.beforeaibe.TestcontainersConfiguration;
 import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Project;
@@ -65,7 +69,6 @@ import static site.siyoung.beforeaibe.controller.ApiTestSupport.saveUser;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
-@Transactional
 class ApprovalApiTest {
 
     private static final String PROMPT = "로그인 실패 시 에러 메시지를 바꾸고 스테이징에 배포해줘";
@@ -105,12 +108,21 @@ class ApprovalApiTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @MockitoBean
     private WebshellClient webshellClient;
 
     private Project project;
     private User requester;
     private User candidate;
+    private User other;
+    private UUID devDepartmentId;
+    private UUID opsDepartmentId;
 
     @BeforeEach
     void setUp() {
@@ -118,8 +130,10 @@ class ApprovalApiTest {
                 site.siyoung.beforeaibe.entity.Department.builder().name("개발팀").build());
         var ops = departmentRepository.saveAndFlush(
                 site.siyoung.beforeaibe.entity.Department.builder().name("운영팀").build());
+        devDepartmentId = dev.getId();
+        opsDepartmentId = ops.getId();
         requester = saveUser(userRepository, passwordEncoder, "EMP001", Role.EMPLOYEE, dev.getId());
-        saveUser(userRepository, passwordEncoder, "EMP002", Role.EMPLOYEE, dev.getId());
+        other = saveUser(userRepository, passwordEncoder, "EMP002", Role.EMPLOYEE, dev.getId());
         candidate = saveUser(userRepository, passwordEncoder, "EMP101", Role.EMPLOYEE, ops.getId());
 
         project = projectRepository.saveAndFlush(Project.builder()
@@ -127,6 +141,32 @@ class ApprovalApiTest {
                 .department(dev)
                 .repository("git@internal:auth-service.git")
                 .build());
+    }
+
+    // HTTP 호출을 테스트 트랜잭션으로 감싸지 않아 승인 저장 커밋과 실행 트랜잭션을 실제로 검증한다.
+    // saveAndFlush로 커밋한 이 테스트의 fixture만 FK 역순으로 정리한다.
+    @AfterEach
+    void cleanUp() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+            if (project != null) {
+                UUID projectId = project.getId();
+                jdbcTemplate.update("delete from executions where request_id in (select id from requests where project_id = ?)", projectId);
+                jdbcTemplate.update("delete from approvals where request_id in (select id from requests where project_id = ?)", projectId);
+                jdbcTemplate.update("update requests set current_plan_id = null where project_id = ?", projectId);
+                jdbcTemplate.update("delete from tasks where plan_id in (select p.id from plans p join requests r on r.id = p.request_id where r.project_id = ?)", projectId);
+                jdbcTemplate.update("delete from plans where request_id in (select id from requests where project_id = ?)", projectId);
+                jdbcTemplate.update("delete from requests where project_id = ?", projectId);
+                jdbcTemplate.update("delete from projects where id = ?", projectId);
+            }
+            for (User user : new User[]{requester, other, candidate}) {
+                if (user != null) {
+                    jdbcTemplate.update("delete from refresh_tokens where user_id = ?", user.getId());
+                    jdbcTemplate.update("delete from signing_keys where user_id = ?", user.getId());
+                    jdbcTemplate.update("delete from users where id = ?", user.getId());
+                }
+            }
+            jdbcTemplate.update("delete from departments where id in (?, ?)", devDepartmentId, opsDepartmentId);
+        });
     }
 
     private String token(String employeeNumber) throws Exception {
@@ -275,8 +315,9 @@ class ApprovalApiTest {
         String planHash = planHashService.hash(requestRepository.findById(request.getId()).orElseThrow(), plan);
         SigningKey key = saveRegisteredKey(candidate, "candidate-key");
         UUID taskId = plan.getTasks().getFirst().getId();
+        UUID executionId = UUID.randomUUID();
         given(webshellClient.submitExecution(any())).willReturn(
-                new WebshellClient.ExecutionResult(UUID.randomUUID(), planHash, "RUNNING", "base64sig"));
+                new WebshellClient.ExecutionResult(executionId, planHash, "RUNNING", "base64sig"));
 
         mockMvc.perform(post("/api/v1/requests/{id}/approvals", request.getId()).with(internal())
                         .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
@@ -291,13 +332,23 @@ class ApprovalApiTest {
                 .andExpect(jsonPath("$.remainingTaskIds.length()").value(0))
                 .andExpect(jsonPath("$.executionRequested").value(true));
 
-        then(webshellClient).should().submitExecution(any());
+        ArgumentCaptor<WebshellClient.ExecutionRequest> payload = ArgumentCaptor.forClass(WebshellClient.ExecutionRequest.class);
+        then(webshellClient).should().submitExecution(payload.capture());
+        assertThat(payload.getValue().plan()).isEqualTo(planHashService.hashTarget(request, plan));
+        assertThat(payload.getValue().approvals()).containsExactly(new WebshellClient.ApprovalPayload(key.getId(),
+                new WebshellClient.ApprovalPayload.ApprovalEnvelope("HPKE-X25519-AES256GCM", "ZW5j", "Y2lwaGVy")));
         Request found = requestRepository.findById(request.getId()).orElseThrow();
         assertThat(found.getStatus()).isEqualTo(RequestStatus.RUNNING);
-        assertThat(currentPlan(request.getId()).getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.APPROVED);
-        assertThat(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())).hasSize(1);
+        Plan persistedPlan = currentPlan(request.getId());
+        assertThat(persistedPlan.getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.APPROVED);
+        assertThat(persistedPlan.getExecutorSignature()).isEqualTo("base64sig");
+        assertSavedApproval(plan, key, planHash, taskId);
         assertThat(executionRepository.findFirstByRequest_IdAndStatusOrderByCreatedAtDesc(
-                request.getId(), ExecutionStatus.RUNNING)).isPresent();
+                request.getId(), ExecutionStatus.RUNNING)).hasValueSatisfying(execution -> {
+                    assertThat(execution.getWebshellExecutionId()).isEqualTo(executionId);
+                    assertThat(execution.getPlanHash()).isEqualTo(planHash);
+                    assertThat(execution.getWebshellSignature()).isEqualTo("base64sig");
+                });
     }
 
     @Test
@@ -323,10 +374,28 @@ class ApprovalApiTest {
                 .andExpect(jsonPath("$.executionRequested").value(false));
 
         // 서명과 작업 승인은 보관됨(별도 트랜잭션이라 롤백되지 않음)
-        assertThat(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())).hasSize(1);
-        assertThat(currentPlan(request.getId()).getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.APPROVED);
+        assertSavedApproval(plan, key, planHash, taskId);
+        Plan persistedPlan = currentPlan(request.getId());
+        assertThat(persistedPlan.getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.APPROVED);
+        assertThat(persistedPlan.getExecutorSignature()).isNull();
         Request found = requestRepository.findById(request.getId()).orElseThrow();
         assertThat(found.getStatus()).isEqualTo(RequestStatus.PENDING_APPROVAL);
+        assertThat(executionRepository.findFirstByRequest_IdAndStatusOrderByCreatedAtDesc(
+                request.getId(), ExecutionStatus.RUNNING)).isEmpty();
+        then(webshellClient).should().submitExecution(any());
+    }
+
+    private void assertSavedApproval(Plan plan, SigningKey key, String planHash, UUID taskId) {
+        assertThat(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())).singleElement()
+                .satisfies(approval -> {
+                    assertThat(approval.getApproverId()).isEqualTo(candidate.getId());
+                    assertThat(approval.getKeyId()).isEqualTo(key.getId());
+                    assertThat(approval.getPlanHash()).isEqualTo(planHash);
+                    assertThat(approval.getTaskIds()).containsExactly(taskId);
+                    assertThat(approval.getEnvelope().getAlg()).isEqualTo("HPKE-X25519-AES256GCM");
+                    assertThat(approval.getEnvelope().getEncapsulatedKey()).isEqualTo("ZW5j");
+                    assertThat(approval.getEnvelope().getCiphertext()).isEqualTo("Y2lwaGVy");
+                });
     }
 
     @Test
@@ -368,6 +437,30 @@ class ApprovalApiTest {
                                 .formatted(plan.getId(), planHash, taskId, key.getId(), ENVELOPE)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("NOT_APPROVER"));
+        assertNoApprovalChanges(request);
+    }
+
+    @Test
+    void 승인_대상에_권한_없는_작업이_섞이면_어느_작업도_승인하지_않는다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                codeTask(1, TaskStatus.PENDING),
+                deployTask(2, TaskStatus.PENDING, List.of(requester.getId())));
+        Plan plan = currentPlan(request.getId());
+        String planHash = planHashService.hash(request, plan);
+        SigningKey key = saveRegisteredKey(candidate, "candidate-key");
+
+        mockMvc.perform(post("/api/v1/requests/{id}/approvals", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("""
+                                {"planId": "%s", "planHash": "%s", "taskIds": ["%s", "%s"],
+                                 "keyId": "%s", "envelope": %s}"""
+                                .formatted(plan.getId(), planHash, plan.getTasks().get(0).getId(),
+                                        plan.getTasks().get(1).getId(), key.getId(), ENVELOPE)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("NOT_APPROVER"));
+
+        assertNoApprovalChanges(request);
     }
 
     @Test
@@ -435,6 +528,9 @@ class ApprovalApiTest {
         Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
                 deployTask(1, TaskStatus.PENDING, List.of(candidate.getId())));
         Plan plan = currentPlan(request.getId());
+        // fixture 저장과 다른 영속성 컨텍스트에서 읽어 JSON 후보 UUID의 DB 왕복도 확인한다.
+        assertThat(plan.getTasks().getFirst().getRequiredApprovers()).containsExactly(
+                new RequiredApprover(ApproverRule.PROJECT_OWNER, 1, List.of(candidate.getId())));
         UUID taskId = plan.getTasks().getFirst().getId();
 
         mockMvc.perform(post("/api/v1/requests/{id}/rejections", request.getId()).with(internal())
@@ -449,6 +545,71 @@ class ApprovalApiTest {
         assertThat(requestRepository.findById(request.getId()).orElseThrow().getStatus())
                 .isEqualTo(RequestStatus.REJECTED);
         assertThat(currentPlan(request.getId()).getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.REJECTED);
+    }
+
+    @Test
+    void ANYONE_작업은_후보에_명시되지_않은_사용자도_거부할_수_있다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL, codeTask(1, TaskStatus.PENDING));
+        Plan plan = currentPlan(request.getId());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/rejections", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("{\"planId\": \"%s\", \"taskIds\": [\"%s\"]}"
+                                .formatted(plan.getId(), plan.getTasks().getFirst().getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        assertThat(requestRepository.findById(request.getId()).orElseThrow().getStatus()).isEqualTo(RequestStatus.REJECTED);
+        assertThat(currentPlan(request.getId()).getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.REJECTED);
+        then(webshellClient).should(never()).submitExecution(any());
+    }
+
+    @Test
+    void 승인권자가_아니면_거부도_403_NOT_APPROVER이고_상태를_바꾸지_않는다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                deployTask(1, TaskStatus.PENDING, List.of(candidate.getId())));
+        Plan plan = currentPlan(request.getId());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/rejections", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP002"))
+                        .contentType("application/json")
+                        .content("{\"planId\": \"%s\", \"taskIds\": [\"%s\"]}"
+                                .formatted(plan.getId(), plan.getTasks().getFirst().getId())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("NOT_APPROVER"));
+
+        assertNoApprovalChanges(request);
+    }
+
+    @Test
+    void 거부_대상에_권한_없는_작업이_섞이면_어느_작업도_거부하지_않는다() throws Exception {
+        Request request = saveRequest(RequestStatus.PENDING_APPROVAL,
+                codeTask(1, TaskStatus.PENDING),
+                deployTask(2, TaskStatus.PENDING, List.of(requester.getId())));
+        Plan plan = currentPlan(request.getId());
+
+        mockMvc.perform(post("/api/v1/requests/{id}/rejections", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("{\"planId\": \"%s\", \"taskIds\": [\"%s\", \"%s\"]}"
+                                .formatted(plan.getId(), plan.getTasks().get(0).getId(), plan.getTasks().get(1).getId())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("NOT_APPROVER"));
+
+        assertNoApprovalChanges(request);
+    }
+
+    private void assertNoApprovalChanges(Request request) {
+        Request persisted = requestRepository.findById(request.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(RequestStatus.PENDING_APPROVAL);
+        assertThat(persisted.getProgressVersion()).isZero();
+        Plan plan = currentPlan(request.getId());
+        assertThat(plan.getTasks()).allSatisfy(task -> assertThat(task.getStatus()).isEqualTo(TaskStatus.PENDING));
+        assertThat(approvalRepository.findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId())).isEmpty();
+        assertThat(executionRepository.findFirstByRequest_IdAndStatusOrderByCreatedAtDesc(
+                request.getId(), ExecutionStatus.RUNNING)).isEmpty();
+        then(webshellClient).should(never()).submitExecution(any());
     }
 
     @Test

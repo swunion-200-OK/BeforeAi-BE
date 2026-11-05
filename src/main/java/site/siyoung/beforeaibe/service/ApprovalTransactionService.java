@@ -59,7 +59,7 @@ public class ApprovalTransactionService {
     // 승인 서명 저장 + 작업 상태 전이 (한 트랜잭션). 전량 승인 여부를 ApproveResult로 돌려줌
     @Transactional
     public ApproveResult saveApproval(UUID userId, UUID requestId, Network network, ApprovalSubmitRequest body) {
-        Request request = requestService.getViewableRequestForUpdate(requestId, userId);
+        Request request = findForUpdate(requestId);
         if (!APPROVABLE.contains(request.getStatus())) {
             throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 승인할 수 있습니다");
         }
@@ -122,14 +122,25 @@ public class ApprovalTransactionService {
     // 웹쉘 실행 요청 (별도 트랜잭션). 성공하면 Execution 저장·Plan 서명 보관·요청 RUNNING으로 전이.
     // WEBSHELL_UNAVAILABLE이면 이 트랜잭션만 롤백되고 saveApproval 커밋은 유지됨
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void requestExecution(UUID requestId) {
-        Request request = requestRepository.findByIdForUpdate(requestId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "요청을 찾을 수 없습니다"));
+    public void requestExecution(UUID requestId, UUID expectedPlanId) {
+        Request request = findForUpdate(requestId);
+        // 승인 저장 커밋 뒤 실행 잠금을 다시 얻기 전까지 요청 취소·Plan 변경이 끼어들 수 있음
+        if (!expectedPlanId.equals(request.getCurrentPlanId())) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "승인한 Plan이 변경되었습니다");
+        }
         // 다른 승인이 먼저 실행을 올렸으면 건너뜀
         if (request.getStatus() == RequestStatus.RUNNING) {
             return;
         }
+        if (!APPROVABLE.contains(request.getStatus())) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 실행할 수 있습니다");
+        }
         Plan plan = requestService.getCurrentPlan(request);
+        if (plan.getTasks().stream()
+                .filter(task -> task.getRisk() != Risk.FORBIDDEN)
+                .anyMatch(task -> task.getStatus() != TaskStatus.APPROVED)) {
+            throw new ApiException(ErrorCode.INVALID_STATE, "모든 실행 대상 작업이 승인되어야 합니다");
+        }
         Map<String, Object> planPayload = planHashService.hashTarget(request, plan);
         List<WebshellClient.ApprovalPayload> approvalPayloads = approvalRepository
                 .findByPlan_IdOrderByCreatedAtAscIdAsc(plan.getId()).stream()
@@ -159,7 +170,7 @@ public class ApprovalTransactionService {
 
     @Transactional
     public RejectionResponse reject(UUID userId, UUID requestId, RejectionRequest body) {
-        Request request = requestService.getViewableRequestForUpdate(requestId, userId);
+        Request request = findForUpdate(requestId);
         if (!APPROVABLE.contains(request.getStatus())) {
             throw new ApiException(ErrorCode.INVALID_STATE, "승인 대기 중인 요청만 거부할 수 있습니다");
         }
@@ -173,6 +184,12 @@ public class ApprovalTransactionService {
         request.reject();
         requestStreamService.publishTreeReplaced(request);
         return new RejectionResponse(request.getId(), request.getStatus());
+    }
+
+    // 열람 후보에 없는 ANYONE 승인자도 제출할 수 있으므로, 인가는 resolveApprovableTargets에서 작업별로 검사함
+    private Request findForUpdate(UUID requestId) {
+        return requestRepository.findByIdForUpdate(requestId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "요청을 찾을 수 없습니다"));
     }
 
     // 대상 작업이 현재 Plan 소속이고 PENDING이며 내가 승인권자인지 검증

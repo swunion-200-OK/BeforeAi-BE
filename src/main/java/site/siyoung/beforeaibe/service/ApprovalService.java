@@ -32,7 +32,6 @@ import java.util.UUID;
 // 승인 봉투(envelope)는 웹 서비스에서 열어 보지 않고 웹쉘로 전달만 함. planHash·taskIds·keyId는 사전 검사·표시용
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class ApprovalService {
 
     private static final String INTERNAL_NETWORK_ONLY = ErrorCode.INTERNAL_NETWORK_ONLY.name();
@@ -46,6 +45,7 @@ public class ApprovalService {
     private final ApprovalPolicy approvalPolicy;
 
     // 내 승인 대기 작업 목록. 승인 받을 수 있는 요청의 현재 Plan에서 내가 승인권자인 PENDING 작업만 평탄화해 내려 줌
+    @Transactional(readOnly = true)
     public CursorPageResponse<PendingApprovalResponse> pending(UUID userId, String cursor, int limit) {
         List<Request> requests = requestRepository.findPendingApprovalRequestsForApprover(userId);
         List<PendingApprovalResponse> items = new ArrayList<>();
@@ -62,6 +62,7 @@ public class ApprovalService {
     }
 
     // 승인 전 원문·해시 대상 조회. 외부망이면 내부망 전용 작업을 blockedTaskIds로 돌려줌(조회 자체는 전체 망 허용)
+    @Transactional(readOnly = true)
     public ApprovalContextResponse approvalContext(UUID userId, UUID requestId, Network network) {
         Request request = requestService.getViewableRequest(requestId, userId);
         Plan plan = requestService.getCurrentPlan(request);
@@ -88,6 +89,7 @@ public class ApprovalService {
 
     // 암호화 서명 제출. 서명 보관·작업 상태 전이는 한 트랜잭션으로 커밋하고(saveApproval),
     // 전량 승인 시 웹쉘 실행 요청은 별도 트랜잭션으로 호출해 연결 실패가 승인 보관을 롤백하지 않도록 함(계획서 2.6)
+    // 두 단계 사이에 커밋되어야 하므로 이 퍼사드에는 트랜잭션을 걸지 않음
     public ApprovalSubmitResponse approve(UUID userId, UUID requestId, Network network, ApprovalSubmitRequest body) {
         ApprovalTransactionService.ApproveResult result =
                 approvalTransactionService.saveApproval(userId, requestId, network, body);
@@ -98,7 +100,7 @@ public class ApprovalService {
         // 전량 승인됨 → 웹쉘에 실행 요청. 연결 실패면 서명은 이미 보관됐으므로 executionRequested=false로만 응답
         boolean executionRequested;
         try {
-            approvalTransactionService.requestExecution(requestId);
+            approvalTransactionService.requestExecution(requestId, body.planId());
             executionRequested = true;
         } catch (ApiException e) {
             if (e.getErrorCode() != ErrorCode.WEBSHELL_UNAVAILABLE) {
