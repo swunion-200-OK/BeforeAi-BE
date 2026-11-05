@@ -49,6 +49,8 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun   # 로컬 개발 프로필: 루�
 | `WEBSHELL_ENCRYPTION_PUBLIC_KEY`, `WEBSHELL_SIGNING_PUBLIC_KEY` | | 웹쉘 공개키(Base64). 비어 있으면 `/webshell/public-key`가 502 |
 | `WEBSHELL_BASE_URL` | | 웹쉘 주소(내부망). 비어 있으면 웹쉘 호출(`/requests/{id}/kill`)이 502 |
 | `WEBSHELL_SSL_BUNDLE` | | 웹쉘 mTLS 클라이언트 인증서를 등록한 Spring Boot SSL 번들 이름(`spring.ssl.bundle.pem.<이름>.*`로 등록) |
+| `SERVER_SSL_ENABLED`, `SERVER_SSL_BUNDLE` | | 웹 서비스가 직접 TLS를 종료할 때 켬. 번들에 서버 인증서와 웹쉘 CA 신뢰 저장소를 넣음(`client-auth=want`). 웹쉘 콜백 mTLS에 필요 |
+| `WEBSHELL_CALLBACK_CLIENT_CN` | | 웹쉘 콜백(`/api/v1/internal/**`)을 허용할 클라이언트 인증서 CN. 비어 있으면 콜백은 모두 401 |
 | `SEED_PASSWORD` | local 프로필 | 시드 계정(ADMIN001, MGR001, EMP001, EMP002, EMP101) 비밀번호 |
 
 ## 디렉터리 구조
@@ -104,6 +106,7 @@ src/main/resources/
 - 인증은 `Authorization: Bearer {액세스 토큰}`(15분)입니다. 리프레시 토큰은 HttpOnly 쿠키(`refresh_token`, Path `/api/v1/auth`)로만 주고받고, 재발급할 때마다 바꿉니다(로테이션). DB에는 해시만 저장합니다.
 - CORS는 `/api/**`에만 적용하고 credentials(리프레시 쿠키)를 허용하며 `X-Network`를 노출합니다. 쿠키가 `SameSite=Strict`이므로 프론트와 API는 같은 사이트(같은 등록 도메인, 예: `app.example.com`·`api.example.com`)에 있어야 합니다.
 - 토큰 없이 열린 경로는 `POST /api/v1/auth/login`·`/otp/verify`·`/refresh`, `/error`, Swagger, `/actuator/**`뿐입니다. 새 공개 경로가 필요하면 `SecurityConfig`에 명시적으로 추가합니다.
+- 웹쉘 콜백(`/api/v1/internal/**`)은 JWT 대신 웹쉘 클라이언트 인증서(mTLS)로 인증하는 별도 필터 체인입니다. 인증서 CN이 `WEBSHELL_CALLBACK_CLIENT_CN`과 같아야 하며 내부망 전용입니다. 이벤트 계약은 `.docs/webshell-callback-events.md`.
 - 명세의 망 열이 "내부"인 API는 컨트롤러 메서드에 `@InternalNetworkOnly`를 붙입니다(외부망이면 `403 INTERNAL_NETWORK_ONLY`). 접속 환경은 `NetworkResolver`가 소켓 원격 주소로 판별하며, 프록시가 없으므로 `X-Forwarded-For`는 믿지 않습니다. 모든 응답에 `X-Network` 헤더가 붙습니다.
 - 외부망 로그인은 OTP 확인 전까지 임시 토큰만 받습니다(일반 API는 `401 OTP_REQUIRED`). 외부망 세션은 마지막 재발급 후 30분이 지나면 만료됩니다. 내부망에서 받은 토큰을 외부망에서 쓰는 경우는 아직 막지 않습니다.
 - `passwordChangeRequired` 사용자는 `GET /me`, `PUT /me/password`, `POST /auth/logout` 외에는 `409 INVALID_STATE`입니다.
@@ -143,5 +146,5 @@ src/main/resources/
 - 구현 계약은 `.docs/forbidden-workflow.md`를 참고합니다. 규칙 조회에는 `RELEASE_PENDING`도 포함하며 해제 요청 후에도 금지는 유효합니다.
 - 정책 변경은 `PolicyRevisionService`와 `PolicyChangeLock`을 통해 직렬화합니다. 정책 버전은 전체 `policyPayload`를 보존하고 금지 규칙·등록된 서명키를 포함해 해시를 계산합니다.
 - `PolicyDeploymentService`는 버전 저장 후 별도 트랜잭션에서 최신 스냅샷을 배포합니다. 502여도 변경은 이미 저장될 수 있으며 오류 details의 `mutationCommitted`를 확인합니다. 최신 미적용 버전은 기본 30초마다 재전송합니다.
-- 새 정책 묶음은 기본적으로 실제 HTTP 클라이언트를 사용합니다. `webshell.policy-stub=true`는 개발·테스트에서만 명시적으로 켭니다. 기존 공개키 등록·폐기·전사 중단 포트의 스텁과 구분합니다.
+- 새 정책 묶음은 기본적으로 실제 HTTP 클라이언트를 사용합니다. `webshell.policy-stub=true`는 개발·테스트에서만 명시적으로 켭니다. 공개키 등록·폐기도 새 정책 버전으로 같은 흐름을 타며, 등록된 키를 폐기할 때는 `adminProof` 본문이 필요합니다.
 - 정책 adminProof는 필드 존재만 검사하며 실제 서명 계약은 웹쉘과 합의해야 합니다. 공개키 등록 API의 Ed25519 검증 규칙을 정책 서명 규칙으로 재사용하지 않습니다.

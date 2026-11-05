@@ -121,7 +121,8 @@ public class ApprovalTransactionService {
     }
 
     // 웹쉘 실행 요청 (별도 트랜잭션). 성공하면 Execution 저장·Plan 서명 보관·요청 RUNNING(롤백 Plan이면 ROLLING_BACK)으로
-    // 전이하고 바뀐 상태를 돌려줌. WEBSHELL_UNAVAILABLE이면 이 트랜잭션만 롤백되고 saveApproval 커밋은 유지됨
+    // 전이하고 바뀐 상태를 돌려줌. WEBSHELL_UNAVAILABLE이면 이 트랜잭션만 롤백되고 saveApproval 커밋은 유지됨.
+    // 웹쉘이 403 VERIFICATION_FAILED로 거부하면 요청을 VERIFICATION_FAILED로 바꿔 커밋하고 그 상태를 돌려줌
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public RequestStatus requestExecution(UUID requestId, UUID expectedPlanId) {
         Request request = findForUpdate(requestId);
@@ -152,8 +153,16 @@ public class ApprovalTransactionService {
                                 approval.getEnvelope().getCiphertext())))
                 .toList();
 
-        WebshellClient.ExecutionResult result = webshellClient.submitExecution(
-                new WebshellClient.ExecutionRequest(planPayload, approvalPayloads));
+        WebshellClient.ExecutionResult result;
+        try {
+            result = webshellClient.submitExecution(new WebshellClient.ExecutionRequest(planPayload, approvalPayloads));
+        } catch (WebshellClient.VerificationFailedException e) {
+            // 웹쉘이 세션을 열지 않았으므로 Execution은 만들지 않고 요청만 검증 실패로 둠(커밋됨)
+            request.failVerification();
+            requestStreamService.publishNodeUpdated(request, RequestStreamService.requestNodeId(request.getId()),
+                    request.getStatus().name());
+            return request.getStatus();
+        }
 
         plan.assignExecutorSignature(result.webshellSignature());
         executionRepository.save(Execution.builder()

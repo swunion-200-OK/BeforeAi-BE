@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import site.siyoung.beforeaibe.dto.request.ExecutionLogResponse;
+import site.siyoung.beforeaibe.dto.request.ProgressNodeResponse;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.enums.RequestSource;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
@@ -96,6 +97,28 @@ class RequestStreamServiceTest {
                 .contains("event:node.updated")
                 .contains("\"nodeId\":\"request:" + request.getId() + "\"")
                 .contains("\"status\":\"CANCELED\"");
+    }
+
+    @Test
+    void STEP이_생기면_부모_노드와_함께_node_added를_보낸다() throws Exception {
+        Request request = newRequest();
+        MvcResult stream = subscribeProgress(request.getId(), 0);
+        UUID executionId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+
+        requestStreamService.publishNodeAdded(request, RequestStreamService.taskNodeId(taskId),
+                ProgressNodeResponse.step(RequestStreamService.stepNodeId(executionId, taskId), "apply-diff",
+                        "RUNNING", null));
+
+        assertThat(request.getProgressVersion()).isEqualTo(1);
+        assertThat(stream.getResponse().getContentAsString())
+                .contains("id:1")
+                .contains("event:node.added")
+                .contains("\"parentId\":\"task:" + taskId + "\"")
+                .contains("\"id\":\"step:" + executionId + ":" + taskId + "\"")
+                .contains("\"type\":\"STEP\"")
+                .contains("\"label\":\"apply-diff\"")
+                .doesNotContain("logRange");
     }
 
     @Test

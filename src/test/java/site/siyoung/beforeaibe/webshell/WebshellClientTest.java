@@ -236,4 +236,112 @@ class WebshellClientTest {
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
     }
+
+    @Test
+    void 승인_서명_검증_실패_403은_실패_항목과_함께_VerificationFailedException이다() {
+        responseStatus = 403;
+        responseBody = """
+                {"error": {"code": "VERIFICATION_FAILED", "message": "승인 서명 검증에 실패했습니다",
+                 "details": {"failedChecks": ["NONCE_ALREADY_USED", "PLAN_HASH_MISMATCH"]}}}
+                """;
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                Map.of("requestId", "r-1"), java.util.List.of());
+
+        assertThatThrownBy(() -> client().submitExecution(request))
+                .isInstanceOfSatisfying(WebshellClient.VerificationFailedException.class,
+                        e -> assertThat(e.getFailedChecks()).containsExactly("NONCE_ALREADY_USED", "PLAN_HASH_MISMATCH"));
+    }
+
+    @Test
+    void 코드가_VERIFICATION_FAILED가_아닌_403은_502_WEBSHELL_UNAVAILABLE이다() {
+        responseStatus = 403;
+        responseBody = """
+                {"error": {"code": "FORBIDDEN", "message": "클라이언트 인증서가 허용되지 않았습니다"}}
+                """;
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                Map.of("requestId", "r-1"), java.util.List.of());
+
+        assertThatThrownBy(() -> client().submitExecution(request))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
+    }
+
+    @Test
+    void 본문을_읽을_수_없는_403은_502_WEBSHELL_UNAVAILABLE이다() {
+        responseStatus = 403;
+        responseBody = "forbidden";
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                Map.of("requestId", "r-1"), java.util.List.of());
+
+        assertThatThrownBy(() -> client().submitExecution(request))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
+    }
+
+    @Test
+    void 실행_요청의_403_이외_오류는_502_WEBSHELL_UNAVAILABLE이다() {
+        responseStatus = 500;
+        responseBody = "{}";
+        WebshellClient.ExecutionRequest request = new WebshellClient.ExecutionRequest(
+                Map.of("requestId", "r-1"), java.util.List.of());
+
+        assertThatThrownBy(() -> client().submitExecution(request))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
+    }
+
+    @Test
+    void 실행_상태를_조회한다() {
+        responseStatus = 200;
+        UUID taskId = UUID.randomUUID();
+        responseBody = """
+                {"executionId": "%s", "status": "RUNNING",
+                 "tasks": [{"taskId": "%s", "status": "SUCCEEDED"}], "webshellSignature": "c2ln"}
+                """.formatted(EXECUTION_ID, taskId);
+
+        WebshellClient.ExecutionStatusResult result = client().getExecution(EXECUTION_ID);
+
+        assertThat(receivedMethod).isEqualTo("GET");
+        assertThat(receivedPath).isEqualTo("/v1/executions/" + EXECUTION_ID);
+        assertThat(result).isEqualTo(new WebshellClient.ExecutionStatusResult(EXECUTION_ID, "RUNNING",
+                java.util.List.of(new WebshellClient.ExecutionStatusResult.TaskResult(taskId, "SUCCEEDED")), "c2ln"));
+    }
+
+    @Test
+    void 전체_중단을_요청하고_중단된_실행_ID를_읽는다() {
+        responseStatus = 200;
+        responseBody = """
+                {"executionIds": ["%s"], "status": "KILLED", "webshellSignature": "c2ln"}
+                """.formatted(EXECUTION_ID);
+
+        WebshellClient.KillAllResult result = client().killAll("전사 긴급 실행 중단");
+
+        assertThat(receivedMethod).isEqualTo("POST");
+        assertThat(receivedPath).isEqualTo("/v1/kill-all");
+        assertThat(receivedContentType).startsWith("application/json");
+        assertThat(receivedBody).isEqualTo("{\"reason\":\"전사 긴급 실행 중단\"}");
+        assertThat(result).isEqualTo(new WebshellClient.KillAllResult(java.util.List.of(EXECUTION_ID), "KILLED", "c2ln"));
+    }
+
+    @Test
+    void 전체_중단_실패는_502_WEBSHELL_UNAVAILABLE이다() {
+        responseStatus = 503;
+        responseBody = "{}";
+
+        assertThatThrownBy(() -> client().killAll("중단"))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.WEBSHELL_UNAVAILABLE));
+    }
+
+    @Test
+    void 현재_정책_버전과_해시를_조회한다() {
+        responseStatus = 200;
+        responseBody = "{\"version\": 8, \"policyHash\": \"sha256:abc\"}";
+
+        WebshellClient.PolicyCurrentResult result = client().getCurrentPolicy();
+
+        assertThat(receivedMethod).isEqualTo("GET");
+        assertThat(receivedPath).isEqualTo("/v1/policies/current");
+        assertThat(result).isEqualTo(new WebshellClient.PolicyCurrentResult(8, "sha256:abc"));
+    }
 }

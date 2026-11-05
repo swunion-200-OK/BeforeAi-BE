@@ -34,4 +34,24 @@ public interface ExecutionLogRepository extends JpaRepository<ExecutionLog, UUID
                                      @Param("executionId") UUID executionId,
                                      @Param("sequence") long sequence,
                                      Limit limit);
+
+    // 진행 트리 STEP 노드의 logRange: Plan의 실행 세션·작업별 로그 sequence 최솟값·최댓값
+    @Query("""
+            select l.execution.id as executionId, l.task.id as taskId,
+                   min(l.sequence) as fromSequence, max(l.sequence) as toSequence
+            from ExecutionLog l
+            where l.execution.plan.id = :planId and l.task is not null
+            group by l.execution.id, l.task.id
+            """)
+    List<LogRangeView> findLogRangesByPlanId(@Param("planId") UUID planId);
+
+    interface LogRangeView {
+        UUID getExecutionId();
+
+        UUID getTaskId();
+
+        long getFromSequence();
+
+        long getToSequence();
+    }
 }
