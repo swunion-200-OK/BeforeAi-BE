@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 승인 서명(payload + signature)을 실행기 공개키로 암호화한 값. 웹 서비스는 열어 보지 않고 전달만 함
+// 승인 서명(payload + signature)을 웹쉘 공개키로 암호화(HPKE)한 값. 웹 서비스는 열어 보지 않고 전달만 함
 @Getter
 @Embeddable
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

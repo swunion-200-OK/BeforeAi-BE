@@ -12,8 +12,8 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import site.siyoung.beforeaibe.enums.RequestSource;
-import site.siyoung.beforeaibe.enums.RequestStatus;
+import site.siyoung.beforeaibe.entity.enums.RequestSource;
+import site.siyoung.beforeaibe.entity.enums.RequestStatus;
 
 import java.util.UUID;
 
@@ -49,6 +49,14 @@ public class Request extends BaseTimeEntity {
 
     private UUID currentPlanId;
 
+    // AI 분석이 돌려준 확인 질문. 요청자가 PATCH /requests/{id}/plan의 answer로 답하면 비움 (API 명세서 4.1)
+    @Column(columnDefinition = "text")
+    private String clarification;
+
+    // 진행 상황 트리 버전. 트리가 바뀔 때마다 1씩 늘고 SSE 이벤트 id·Last-Event-ID로 씀 (API 명세서 2.6, 4.9)
+    @Column(nullable = false)
+    private long progressVersion;
+
     @Builder
     private Request(UUID projectId, UUID requesterId, String prompt, RequestSource source,
                     RequestStatus status, int analysisAttempts, UUID currentPlanId) {
@@ -59,5 +67,17 @@ public class Request extends BaseTimeEntity {
         this.status = status;
         this.analysisAttempts = analysisAttempts;
         this.currentPlanId = currentPlanId;
+    }
+
+    public void askClarification(String clarification) {
+        this.clarification = clarification;
+    }
+
+    public void clearClarification() {
+        this.clarification = null;
+    }
+
+    public long increaseProgressVersion() {
+        return ++progressVersion;
     }
 }

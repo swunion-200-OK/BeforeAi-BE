@@ -14,10 +14,10 @@ import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
-import site.siyoung.beforeaibe.enums.ApproverRule;
-import site.siyoung.beforeaibe.enums.Risk;
-import site.siyoung.beforeaibe.enums.TaskStatus;
-import site.siyoung.beforeaibe.enums.TaskType;
+import site.siyoung.beforeaibe.entity.enums.ApproverRule;
+import site.siyoung.beforeaibe.entity.enums.Risk;
+import site.siyoung.beforeaibe.entity.enums.TaskStatus;
+import site.siyoung.beforeaibe.entity.enums.TaskType;
 
 import java.util.List;
 import java.util.UUID;
@@ -38,7 +38,7 @@ class PlanRepositoryTest {
 
     @Test
     void Plan과_Task를_함께_저장하면_Task가_order_순서로_조회된다() {
-        Request request = em.persist(RepositoryTestSupport.request());
+        Request request = RepositoryTestSupport.persistRequest(em);
         UUID infraDeptId = UUID.randomUUID();
         List<UUID> owners = List.of(UUID.randomUUID(), UUID.randomUUID());
 
@@ -79,7 +79,7 @@ class PlanRepositoryTest {
 
     @Test
     void 같은_Plan_안에서_order가_겹치면_저장되지_않는다() {
-        Request request = em.persist(RepositoryTestSupport.request());
+        Request request = RepositoryTestSupport.persistRequest(em);
 
         Plan plan = RepositoryTestSupport.plan(request);
         plan.addTask(RepositoryTestSupport.codeTask(1));
@@ -91,7 +91,7 @@ class PlanRepositoryTest {
 
     @Test
     void Task_목록은_addTask로만_추가할_수_있다() {
-        Plan plan = RepositoryTestSupport.plan(RepositoryTestSupport.request());
+        Plan plan = RepositoryTestSupport.plan(RepositoryTestSupport.request(UUID.randomUUID(), UUID.randomUUID()));
 
         assertThatThrownBy(() -> plan.getTasks().add(RepositoryTestSupport.codeTask(1)))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -99,7 +99,7 @@ class PlanRepositoryTest {
 
     @Test
     void jsonb에는_값이_없는_필드를_저장하지_않는다() {
-        Request request = em.persist(RepositoryTestSupport.request());
+        Request request = RepositoryTestSupport.persistRequest(em);
         Plan plan = RepositoryTestSupport.plan(request);
         plan.addTask(RepositoryTestSupport.codeTask(1));
         Plan saved = planRepository.saveAndFlush(plan);

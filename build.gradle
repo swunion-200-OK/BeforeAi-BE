@@ -29,6 +29,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
+    implementation('dev.samstevens.totp:totp:1.7.1') {
+        // QR 이미지는 만들지 않고 otpauth URI만 내려 주므로 zxing은 제외
+        exclude group: 'com.google.zxing'
+    }
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     runtimeOnly 'org.postgresql:postgresql'

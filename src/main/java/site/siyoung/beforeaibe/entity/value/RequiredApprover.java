@@ -1,7 +1,7 @@
 package site.siyoung.beforeaibe.entity.value;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import site.siyoung.beforeaibe.enums.ApproverRule;
+import site.siyoung.beforeaibe.entity.enums.ApproverRule;
 
 import java.util.List;
 import java.util.UUID;

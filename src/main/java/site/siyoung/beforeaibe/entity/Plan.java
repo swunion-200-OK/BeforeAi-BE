@@ -18,7 +18,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import site.siyoung.beforeaibe.enums.PlanKind;
+import site.siyoung.beforeaibe.entity.enums.PlanKind;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,10 +49,12 @@ public class Plan {
     @Column(nullable = false, length = 64)
     private String baseCommit;
 
-    // 제출(submit) 시 실행기가 발급하므로 그 전까지는 null
+    // 제출(submit) 때 웹 서비스가 JCS 정규화 + SHA-256으로 만드는 표시용 해시라 그 전까지는 null.
+    // 승인자 기기와 웹쉘은 이 값을 믿지 않고 각자 다시 계산함 (API 명세서 2.3)
     @Column(length = 128)
     private String planHash;
 
+    // 웹쉘이 실행을 받아들이며 돌려준 서명(POST /v1/executions 응답의 webshellSignature). 컬럼명은 V1 그대로 둠
     @Column(columnDefinition = "text")
     private String executorSignature;
 

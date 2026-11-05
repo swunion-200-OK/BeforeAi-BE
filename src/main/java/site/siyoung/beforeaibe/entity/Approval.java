@@ -22,7 +22,7 @@ import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import site.siyoung.beforeaibe.entity.value.ApprovalEnvelope;
-import site.siyoung.beforeaibe.enums.Network;
+import site.siyoung.beforeaibe.entity.enums.Network;
 
 import java.time.Instant;
 import java.util.List;

@@ -20,9 +20,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
-import site.siyoung.beforeaibe.enums.Risk;
-import site.siyoung.beforeaibe.enums.TaskStatus;
-import site.siyoung.beforeaibe.enums.TaskType;
+import site.siyoung.beforeaibe.entity.enums.Risk;
+import site.siyoung.beforeaibe.entity.enums.TaskStatus;
+import site.siyoung.beforeaibe.entity.enums.TaskType;
 
 import java.util.List;
 import java.util.UUID;

@@ -12,7 +12,7 @@ import site.siyoung.beforeaibe.entity.Approval;
 import site.siyoung.beforeaibe.entity.Plan;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.value.ApprovalEnvelope;
-import site.siyoung.beforeaibe.enums.Network;
+import site.siyoung.beforeaibe.entity.enums.Network;
 
 import java.util.List;
 import java.util.UUID;
@@ -32,7 +32,7 @@ class ApprovalRepositoryTest {
 
     @Test
     void 승인_기록과_암호화된_envelope를_저장하고_조회한다() {
-        Request request = em.persist(RepositoryTestSupport.request());
+        Request request = RepositoryTestSupport.persistRequest(em);
         Plan plan = RepositoryTestSupport.plan(request);
         plan.addTask(RepositoryTestSupport.codeTask(1));
         em.persist(plan);
