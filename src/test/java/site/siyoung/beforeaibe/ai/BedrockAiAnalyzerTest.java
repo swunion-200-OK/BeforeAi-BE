@@ -1,6 +1,5 @@
 package site.siyoung.beforeaibe.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import site.siyoung.beforeaibe.ai.dto.AnalysisInput;
 import site.siyoung.beforeaibe.ai.dto.AnalysisResult;
@@ -26,7 +25,6 @@ import static org.mockito.Mockito.when;
 class BedrockAiAnalyzerTest {
 
     private final PromptBuilder promptBuilder = new PromptBuilder();
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private BedrockAiAnalyzer analyzerReturning(String modelText) {
         BedrockRuntimeClient client = mock(BedrockRuntimeClient.class);
@@ -39,8 +37,7 @@ class BedrockAiAnalyzerTest {
                         .build())
                 .build();
         when(client.converse(any(ConverseRequest.class))).thenReturn(response);
-        return new BedrockAiAnalyzer(client, promptBuilder, objectMapper,
-                "test-model", 1024, 0.2f);
+        return new BedrockAiAnalyzer(client, promptBuilder, "test-model", 1024, 0.2f);
     }
 
     private AnalysisInput input() {

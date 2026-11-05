@@ -33,20 +33,18 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
 
     private final BedrockRuntimeClient client;
     private final PromptBuilder promptBuilder;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final String modelId;
     private final int maxTokens;
     private final float temperature;
 
     public BedrockAiAnalyzer(BedrockRuntimeClient client,
                              PromptBuilder promptBuilder,
-                             ObjectMapper objectMapper,
                              @Value("${bedrock.model-id}") String modelId,
                              @Value("${bedrock.max-tokens:4096}") int maxTokens,
                              @Value("${bedrock.temperature:0.2}") float temperature) {
         this.client = client;
         this.promptBuilder = promptBuilder;
-        this.objectMapper = objectMapper;
         this.modelId = modelId;
         this.maxTokens = maxTokens;
         this.temperature = temperature;
