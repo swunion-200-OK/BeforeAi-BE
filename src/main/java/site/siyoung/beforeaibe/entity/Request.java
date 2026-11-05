@@ -1,5 +1,6 @@
 package site.siyoung.beforeaibe.entity;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -7,15 +8,21 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import site.siyoung.beforeaibe.entity.enums.RequestSource;
 import site.siyoung.beforeaibe.entity.enums.RequestStatus;
+import site.siyoung.beforeaibe.security.CurrentActor;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -64,6 +71,18 @@ public class Request extends BaseTimeEntity {
     @Column(nullable = false)
     private long progressVersion;
 
+    // 재분석 입력(답변·수정 지시). 분석이 실패해 재시도해도 잃지 않도록 새 Plan이 만들어질 때까지 보관함
+    @Column(columnDefinition = "text")
+    private String reanalysisInput;
+
+    // 웹쉘이 돌려준 승인 서명 검증 실패 항목
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private List<String> failedChecks;
+
+    @OneToMany(mappedBy = "request", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    private List<RequestStatusEvent> statusEvents = new ArrayList<>();
+
     @Builder
     private Request(UUID projectId, UUID requesterId, String prompt, RequestSource source,
                     RequestStatus status, int analysisAttempts, UUID currentPlanId) {
@@ -71,7 +90,7 @@ public class Request extends BaseTimeEntity {
         this.requesterId = requesterId;
         this.prompt = prompt;
         this.source = source;
-        this.status = status;
+        transition(status);
         this.analysisAttempts = analysisAttempts;
         this.currentPlanId = currentPlanId;
     }
@@ -79,29 +98,30 @@ public class Request extends BaseTimeEntity {
     // 실패한 AI 분석을 다시 돌림. 시도 횟수 상한 검사는 서비스에서 함
     public void retryAnalysis() {
         this.analysisAttempts++;
-        this.status = RequestStatus.ANALYZING;
+        transition(RequestStatus.ANALYZING);
     }
 
     // AI 분석 성공: 생성된 Plan을 현재 Plan으로 두고 검토 대기로 전이
     public void finishAnalysisWithPlan(UUID planId) {
         this.currentPlanId = planId;
-        this.status = RequestStatus.REVIEWING;
+        this.reanalysisInput = null;
+        transition(RequestStatus.REVIEWING);
     }
 
     // AI 분석이 되물음(clarification)만 남긴 경우: Plan 없이 검토 대기로 전이(요청자가 answer로 재분석)
     public void finishAnalysisWithoutPlan() {
-        this.status = RequestStatus.REVIEWING;
+        transition(RequestStatus.REVIEWING);
     }
 
     // AI 분석 실패: 재시도 가능한 실패 상태로 전이
     public void failAnalysis() {
-        this.status = RequestStatus.ANALYSIS_FAILED;
+        transition(RequestStatus.ANALYSIS_FAILED);
     }
 
     // Plan 수정·확인 질문 답변 뒤 재분석. 삭제를 반영한 새 Plan이 있으면 현재 Plan으로 바꿈
     public void startReanalysis(UUID planId) {
         this.currentPlanId = planId;
-        this.status = RequestStatus.ANALYZING;
+        transition(RequestStatus.ANALYZING);
     }
 
     // 에디터 변경 요청: 확정된 diff로 만든 Plan을 바로 현재 Plan으로 연결. 상태는 생성 시점 그대로 둠 (API 명세서 3.8)
@@ -110,28 +130,30 @@ public class Request extends BaseTimeEntity {
     }
 
     public void submit() {
-        this.status = RequestStatus.PENDING_APPROVAL;
+        this.failedChecks = null;
+        transition(RequestStatus.PENDING_APPROVAL);
     }
 
     // 부분 완료 요청의 실패 작업으로 만든 새 Plan을 승인 대기로 올림
     public void retryFailedTasks(UUID planId) {
         this.currentPlanId = planId;
-        this.status = RequestStatus.PENDING_APPROVAL;
+        transition(RequestStatus.PENDING_APPROVAL);
     }
 
     // 현재 Plan의 작업이 모두 승인되고 웹쉘이 실행을 받아들이면 실행 중으로 전이
     public void startRunning() {
-        this.status = RequestStatus.RUNNING;
+        transition(RequestStatus.RUNNING);
     }
 
     // 문서 롤백 Plan(kind=ROLLBACK)의 승인이 모두 모이고 웹쉘이 실행을 받아들이면 롤백 중으로 전이
     public void startRollingBack() {
-        this.status = RequestStatus.ROLLING_BACK;
+        transition(RequestStatus.ROLLING_BACK);
     }
 
     // 웹쉘이 승인 서명 검증(POST /v1/executions 403)을 거부하면 실행 세션 없이 검증 실패로 둠
-    public void failVerification() {
-        this.status = RequestStatus.VERIFICATION_FAILED;
+    public void failVerification(List<String> failedChecks) {
+        this.failedChecks = List.copyOf(failedChecks);
+        transition(RequestStatus.VERIFICATION_FAILED);
     }
 
     // 웹쉘 콜백의 최종 상태 이벤트로 실행을 끝냄. 실행이 끝난 뒤의 상태만 받음 (API 명세서 5 콜백)
@@ -139,26 +161,31 @@ public class Request extends BaseTimeEntity {
         if (!EXECUTION_FINAL_STATUSES.contains(finalStatus)) {
             throw new IllegalArgumentException("실행 최종 상태가 아닙니다: " + finalStatus);
         }
-        this.status = finalStatus;
+        transition(finalStatus);
     }
 
     // 승인권자가 작업을 거부하면 요청을 거부 상태로 둠
     public void reject() {
-        this.status = RequestStatus.REJECTED;
+        transition(RequestStatus.REJECTED);
     }
 
     // 문서 롤백 Plan(kind=ROLLBACK)을 현재 Plan으로 두고 승인 대기로 올림. 승인 후 웹쉘 실행에서 ROLLING_BACK이 됨
     public void startRollback(UUID planId) {
         this.currentPlanId = planId;
-        this.status = RequestStatus.PENDING_APPROVAL;
+        transition(RequestStatus.PENDING_APPROVAL);
+    }
+
+    // 승인자가 수정을 요청하면 요청자가 Plan을 고치도록 검토 단계로 되돌림
+    public void returnForChanges() {
+        transition(RequestStatus.REVIEWING);
     }
 
     public void cancel() {
-        this.status = RequestStatus.CANCELED;
+        transition(RequestStatus.CANCELED);
     }
 
     public void kill() {
-        this.status = RequestStatus.KILLED;
+        transition(RequestStatus.KILLED);
     }
 
     public void askClarification(String clarification) {
@@ -167,6 +194,20 @@ public class Request extends BaseTimeEntity {
 
     public void clearClarification() {
         this.clarification = null;
+    }
+
+    // 되물음이 이어져도 앞선 답변이 사라지지 않도록 덧붙임
+    public void appendReanalysisInput(String input) {
+        this.reanalysisInput = reanalysisInput == null ? input : reanalysisInput + "\n\n" + input;
+    }
+
+    private void transition(RequestStatus next) {
+        if (next == null || next == this.status) {
+            this.status = next;
+            return;
+        }
+        this.status = next;
+        statusEvents.add(RequestStatusEvent.of(this, next, CurrentActor.id()));
     }
 
     public long increaseProgressVersion() {

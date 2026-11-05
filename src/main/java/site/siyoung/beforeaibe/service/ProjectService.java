@@ -5,6 +5,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import site.siyoung.beforeaibe.dto.project.ProjectOwnersUpdateRequest;
 import site.siyoung.beforeaibe.dto.common.CursorPageResponse;
 import site.siyoung.beforeaibe.dto.project.ProjectCreateRequest;
 import site.siyoung.beforeaibe.dto.project.ProjectResponse;
@@ -119,6 +120,32 @@ public class ProjectService {
                 .createdBy(creator)
                 .build());
 
+        return ProjectResponse.of(project, owners);
+    }
+
+    // 담당자 교체. 빠지는 사람·새 사람만 바꿔 (project, user) unique 위반을 피함.
+    // 이미 만들어진 Plan의 승인 후보는 생성 시점 값이라 바뀌지 않음
+    @Transactional
+    public ProjectResponse replaceOwners(UUID userId, UUID projectId, ProjectOwnersUpdateRequest request) {
+        Project project = getManageableProjectForUpdate(projectId, userId);
+        Set<UUID> ownerIds = new LinkedHashSet<>(request.ownerIds());
+        if (ownerIds.size() < MIN_OWNERS) {
+            throw new ApiException(ErrorCode.OWNER_MINIMUM, "담당자는 2명 이상이어야 합니다");
+        }
+        Map<UUID, User> usersById = userRepository.findAllById(ownerIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        if (usersById.size() != ownerIds.size()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "존재하지 않는 담당자가 있습니다");
+        }
+        List<User> owners = ownerIds.stream().map(usersById::get).toList();
+        if (owners.stream().anyMatch(owner -> !Objects.equals(owner.getDepartmentId(), project.getDepartment().getId()))) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "담당자는 프로젝트 담당 부서 소속이어야 합니다");
+        }
+
+        List<User> current = project.getOwners().stream().map(ProjectOwner::getUser).toList();
+        current.stream().filter(owner -> !ownerIds.contains(owner.getId())).forEach(project::removeOwner);
+        Set<UUID> currentIds = current.stream().map(User::getId).collect(Collectors.toSet());
+        owners.stream().filter(owner -> !currentIds.contains(owner.getId())).forEach(project::addOwner);
         return ProjectResponse.of(project, owners);
     }
 

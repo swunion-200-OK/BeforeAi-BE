@@ -51,6 +51,7 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun   # 로컬 개발 프로필: 루�
 | `WEBSHELL_SSL_BUNDLE` | | 웹쉘 mTLS 클라이언트 인증서를 등록한 Spring Boot SSL 번들 이름(`spring.ssl.bundle.pem.<이름>.*`로 등록) |
 | `SERVER_SSL_ENABLED`, `SERVER_SSL_BUNDLE` | | 웹 서비스가 직접 TLS를 종료할 때 켬. 번들에 서버 인증서와 웹쉘 CA 신뢰 저장소를 넣음(`client-auth=want`). 웹쉘 콜백 mTLS에 필요 |
 | `WEBSHELL_CALLBACK_CLIENT_CN` | | 웹쉘 콜백(`/api/v1/internal/**`)을 허용할 클라이언트 인증서 CN. 비어 있으면 콜백은 모두 401 |
+| `WEBSHELL_CALLBACK_TLS_ENABLED`, `_PORT`, `_ADDRESS`, `_CERTIFICATE`, `_PRIVATE_KEY`, `_CLIENT_CA` | | 프록시 뒤에서 웹쉘 콜백을 받는 전용 mTLS 포트(앞 접두어 공통 `WEBSHELL_CALLBACK_TLS`). 절차는 `deploy/callback-tls.md` |
 | `SEED_PASSWORD` | local 프로필 | 시드 계정(ADMIN001, MGR001, EMP001, EMP002, EMP101) 비밀번호 |
 
 ## 디렉터리 구조
@@ -106,6 +107,7 @@ src/main/resources/
 - 인증은 `Authorization: Bearer {액세스 토큰}`(15분)입니다. 리프레시 토큰은 HttpOnly 쿠키(`refresh_token`, Path `/api/v1/auth`)로만 주고받고, 재발급할 때마다 바꿉니다(로테이션). DB에는 해시만 저장합니다.
 - CORS는 `/api/**`에만 적용하고 credentials(리프레시 쿠키)를 허용하며 `X-Network`를 노출합니다. 쿠키가 `SameSite=Strict`이므로 프론트와 API는 같은 사이트(같은 등록 도메인, 예: `app.example.com`·`api.example.com`)에 있어야 합니다.
 - 토큰 없이 열린 경로는 `POST /api/v1/auth/login`·`/otp/verify`·`/refresh`, `/error`, Swagger, `/actuator/**`뿐입니다. 새 공개 경로가 필요하면 `SecurityConfig`에 명시적으로 추가합니다.
+- Nginx 뒤에서는 인증서가 앱까지 오지 않으므로 콜백은 `CallbackTlsConfig`의 전용 포트로 받습니다. 이 포트는 콜백 경로만 열고, 프록시 헤더 대신 소켓 IP로 망을 판별합니다.
 - 웹쉘 콜백(`/api/v1/internal/**`)은 JWT 대신 웹쉘 클라이언트 인증서(mTLS)로 인증하는 별도 필터 체인입니다. 인증서 CN이 `WEBSHELL_CALLBACK_CLIENT_CN`과 같아야 하며 내부망 전용입니다. 이벤트 계약은 `.docs/webshell-callback-events.md`.
 - 명세의 망 열이 "내부"인 API는 컨트롤러 메서드에 `@InternalNetworkOnly`를 붙입니다(외부망이면 `403 INTERNAL_NETWORK_ONLY`). 접속 환경은 `NetworkResolver`가 소켓 원격 주소로 판별하며, 프록시가 없으므로 `X-Forwarded-For`는 믿지 않습니다. 모든 응답에 `X-Network` 헤더가 붙습니다.
 - 외부망 로그인은 OTP 확인 전까지 임시 토큰만 받습니다(일반 API는 `401 OTP_REQUIRED`). 외부망 세션은 마지막 재발급 후 30분이 지나면 만료됩니다. 내부망에서 받은 토큰을 외부망에서 쓰는 경우는 아직 막지 않습니다.
@@ -155,3 +157,12 @@ src/main/resources/
 - 결재란은 작업마다 칸 하나, 도장은 그 Plan의 `Approval` 기록으로 그립니다. PDF 다운로드는 최신 판에서 금지 작업을 뺀 모든 작업이 `ApprovalPolicy.satisfied`를 만족할 때만 되고, 거부·취소·중단 요청은 막습니다.
 - 제출 뒤 요청자가 Plan을 고치는 중(ANALYZING·ANALYSIS_FAILED·REVIEWING·REAPPROVAL_REQUIRED)이면 최신 판을 `REVISING`으로 표시하고 다운로드를 막습니다.
 - 미리보기도 서버가 만든 PDF입니다. 렌더링은 `support/ApprovalDocumentPdfRenderer`(OpenPDF)만 담당하며 한글 폰트는 `resources/fonts`의 Noto Sans KR 서브셋(OFL)을 씁니다. 서명 대상은 PDF가 아니라 Plan 해시입니다.
+
+## 승인자 결정·시연 추가 API
+
+- 분석 Plan의 필요 승인자는 `ApproverResolver`가 현재 정책 기준표로 정하고 후보를 생성 시점 값으로 저장합니다. 기준표에 없는 조합의 기본값은 HIGH=PROJECT_OWNER, MEDIUM=SAME_DEPT_OTHER, LOW=ANYONE입니다. ANYONE이 아닌 규칙에서는 요청자를 후보에서 빼고, 후보가 모자라면 ADMIN을 더합니다.
+- `ApprovalPolicy.satisfied`는 규칙별 칸마다 서로 다른 승인자를 배정할 수 있어야 충족으로 봅니다.
+- 컬렉션 밖에서 구현에 맞춰 추가한 API: `POST /requests/{id}/execution`(전량 승인 후 웹쉘 연결 실패로 멈춘 요청의 실행 재시도), `POST /requests/{id}/change-requests`(승인자의 수정 요청, 요청은 REVIEWING으로 돌아감), `PUT /projects/{id}/owners`(담당자 교체).
+- `POST /requests/{id}/retry`는 PARTIALLY_COMPLETED와 함께 FAILED도 받습니다. 금지·성공·거부 작업을 뺀 작업으로 새 Plan을 만듭니다.
+- 요청 상태 변경은 `Request` 메서드에서 `request_status_events`에 쌓입니다. 분석 스레드·콜백처럼 로그인 사용자가 없으면 행위자는 null입니다.
+- AI가 만든 diff는 저장 전에 `UnifiedDiffNormalizer`로 검사합니다. 구조가 깨지면 분석 실패로 돌리고, 헌크 줄 수만 틀리면 본문 기준으로 고칩니다. 헌크 시작 줄이 실제 파일과 맞는지는 웹쉘이 적용할 때 판단합니다.

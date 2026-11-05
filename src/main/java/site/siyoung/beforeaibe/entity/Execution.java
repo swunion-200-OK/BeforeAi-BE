@@ -16,7 +16,9 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import site.siyoung.beforeaibe.entity.enums.ExecutionStatus;
+import site.siyoung.beforeaibe.security.CurrentActor;
 
+import java.time.Instant;
 import java.util.UUID;
 
 // 웹쉘이 승인 서명 검증을 통과시켜 연 실행 세션 1건 (POST /v1/executions 202 응답).
@@ -57,6 +59,10 @@ public class Execution extends BaseTimeEntity {
     @Column(columnDefinition = "text")
     private String killReason;
 
+    private UUID killedBy;
+
+    private Instant killedAt;
+
     @Builder
     private Execution(Request request, Plan plan, UUID webshellExecutionId, String planHash,
                       ExecutionStatus status, String webshellSignature) {
@@ -75,5 +81,7 @@ public class Execution extends BaseTimeEntity {
     public void kill(String killReason) {
         this.status = ExecutionStatus.KILLED;
         this.killReason = killReason;
+        this.killedBy = CurrentActor.id();
+        this.killedAt = Instant.now();
     }
 }
