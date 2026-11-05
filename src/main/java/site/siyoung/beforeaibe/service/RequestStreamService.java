@@ -164,10 +164,23 @@ public class RequestStreamService {
                       SseEmitter.SseEventBuilder event) {
         try {
             emitter.send(event);
-        } catch (IOException | IllegalStateException e) {
-            // 연결이 끊긴 구독자는 정리함
+        } catch (IOException | RuntimeException e) {
+            // 연결이 끊긴 구독자는 정리함. 입출력·연결 오류가 아니면 직렬화 버그일 수 있어 남김
+            if (!(e instanceof IOException || e instanceof IllegalStateException)) {
+                log.warn("SSE 전송 실패: requestId={}", requestId, e);
+            }
             remove(emitters, requestId, emitter);
-            emitter.completeWithError(e);
+            completeQuietly(emitter, e);
+        }
+    }
+
+    // Tomcat은 오류가 난 연결의 AsyncContext를 다시 쓰면 IllegalStateException을 던짐.
+    // 이 예외가 나가면 승인·콜백 처리까지 실패하므로 여기서 막음
+    private void completeQuietly(SseEmitter emitter, Exception cause) {
+        try {
+            emitter.completeWithError(cause);
+        } catch (RuntimeException e) {
+            log.debug("끊긴 SSE 연결 정리 실패", e);
         }
     }
 

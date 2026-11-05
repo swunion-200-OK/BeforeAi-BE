@@ -606,6 +606,28 @@ class RequestApiTest {
     }
 
     @Test
+    void 킬_스위치는_실행_중이던_작업을_FAILED로_시작_전_작업을_SKIPPED로_바꾼다() throws Exception {
+        Request request = saveRequest(RequestStatus.RUNNING,
+                codeTask(1, TaskStatus.SUCCEEDED), codeTask(2, TaskStatus.RUNNING),
+                deployTask(3, TaskStatus.APPROVED, List.of(candidate.getId())));
+        Execution execution = saveExecution(request, ExecutionStatus.RUNNING);
+        given(webshellClient.kill(eq(execution.getWebshellExecutionId()), any()))
+                .willReturn(new WebshellClient.KillResult(execution.getWebshellExecutionId(), "KILLED", "c2ln"));
+        UUID deployTaskId = currentPlan(request.getId()).getTasks().get(2).getId();
+
+        mockMvc.perform(post("/api/v1/requests/{id}/kill", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP101"))
+                        .contentType("application/json")
+                        .content("{\"reason\": \"중단\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.skippedTaskIds.length()").value(1))
+                .andExpect(jsonPath("$.skippedTaskIds[0]").value(deployTaskId.toString()));
+
+        assertThat(currentPlan(request.getId()).getTasks()).extracting(Task::getStatus)
+                .containsExactly(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.SKIPPED);
+    }
+
+    @Test
     void 킬_스위치는_웹쉘_실행을_중단하고_시작하지_않은_작업을_SKIPPED로_바꾼다() throws Exception {
         Request request = saveRequest(RequestStatus.RUNNING,
                 codeTask(1, TaskStatus.SUCCEEDED), deployTask(2, TaskStatus.APPROVED, List.of(candidate.getId())));

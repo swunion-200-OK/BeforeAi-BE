@@ -15,6 +15,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.annotation.Transactional;
 import site.siyoung.beforeaibe.TestcontainersConfiguration;
 import site.siyoung.beforeaibe.entity.Department;
+import site.siyoung.beforeaibe.entity.Document;
+import site.siyoung.beforeaibe.entity.DocumentVersion;
 import site.siyoung.beforeaibe.entity.Execution;
 import site.siyoung.beforeaibe.entity.ExecutionLog;
 import site.siyoung.beforeaibe.entity.Plan;
@@ -33,6 +35,8 @@ import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
 import site.siyoung.beforeaibe.repository.DepartmentRepository;
+import site.siyoung.beforeaibe.repository.DocumentRepository;
+import site.siyoung.beforeaibe.repository.DocumentVersionRepository;
 import site.siyoung.beforeaibe.repository.ExecutionEventRepository;
 import site.siyoung.beforeaibe.repository.ExecutionLogRepository;
 import site.siyoung.beforeaibe.repository.ExecutionRepository;
@@ -99,6 +103,12 @@ class InternalExecutionApiTest {
 
     @Autowired
     private ExecutionLogRepository executionLogRepository;
+
+    @Autowired
+    private DocumentRepository documentRepository;
+
+    @Autowired
+    private DocumentVersionRepository documentVersionRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -590,5 +600,108 @@ class InternalExecutionApiTest {
                         .contentType("application/json").content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    // --- 문서 버전 저장 ---
+
+    private static final String DOC_PATH = "docs/login.md";
+
+    private Execution saveDocExecution(PlanKind kind, String body) {
+        Execution execution = saveExecution(kind == PlanKind.ROLLBACK ? RequestStatus.ROLLING_BACK
+                : RequestStatus.RUNNING, kind, ExecutionStatus.RUNNING, TaskStatus.APPROVED);
+        Task task = execution.getPlan().getTasks().get(0);
+        ReflectionTestUtils.setField(task, "type", TaskType.DOC);
+        ReflectionTestUtils.setField(task, "target", DOC_PATH);
+        ReflectionTestUtils.setField(task, "title", "로그인 안내");
+        ReflectionTestUtils.setField(task, "content", new TaskContent(null, null, null, body));
+        planRepository.saveAndFlush(execution.getPlan());
+        return execution;
+    }
+
+    private void succeed(Execution execution) throws Exception {
+        send(execution, event(UUID.randomUUID(), "TASK_SUCCEEDED", execution, taskId(execution, 0), "{}"),
+                internal(), webshell()).andExpect(status().isNoContent());
+    }
+
+    private Document findDocument() {
+        return documentRepository.findByProject_IdAndPath(project.getId(), DOC_PATH).orElseThrow();
+    }
+
+    @Test
+    void DOC_작업이_성공하면_새_문서와_첫_버전이_저장된다() throws Exception {
+        Execution execution = saveDocExecution(PlanKind.NORMAL, "# 로그인 안내");
+
+        succeed(execution);
+
+        Document document = findDocument();
+        assertThat(document.getTitle()).isEqualTo("로그인 안내");
+        assertThat(document.getCurrentVersion()).isEqualTo(1);
+        DocumentVersion version = documentVersionRepository.findByDocument_IdAndVersion(document.getId(), 1)
+                .orElseThrow();
+        assertThat(version.getBody()).isEqualTo("# 로그인 안내");
+        assertThat(version.getRequest().getId()).isEqualTo(execution.getRequest().getId());
+    }
+
+    @Test
+    void 기존_문서에는_다음_버전이_추가되고_현재_버전이_올라간다() throws Exception {
+        Execution first = saveDocExecution(PlanKind.NORMAL, "첫 본문");
+        succeed(first);
+        Execution second = saveDocExecution(PlanKind.NORMAL, "둘째 본문");
+        succeed(second);
+
+        Document document = findDocument();
+        assertThat(document.getCurrentVersion()).isEqualTo(2);
+        assertThat(documentVersionRepository.findByDocument_IdAndVersion(document.getId(), 1).orElseThrow().getBody())
+                .isEqualTo("첫 본문");
+        assertThat(documentVersionRepository.findByDocument_IdAndVersion(document.getId(), 2).orElseThrow().getBody())
+                .isEqualTo("둘째 본문");
+    }
+
+    @Test
+    void 본문이_없는_DOC_작업은_저장하지_않아도_작업은_성공한다() throws Exception {
+        Execution execution = saveDocExecution(PlanKind.NORMAL, null);
+
+        succeed(execution);
+
+        assertThat(documentRepository.findByProject_IdAndPath(project.getId(), DOC_PATH)).isEmpty();
+        assertThat(execution.getPlan().getTasks().get(0).getStatus()).isEqualTo(TaskStatus.SUCCEEDED);
+    }
+
+    @Test
+    void 같은_eventId를_다시_보내도_문서_버전은_한_번만_저장된다() throws Exception {
+        Execution execution = saveDocExecution(PlanKind.NORMAL, "본문");
+        String body = event(UUID.randomUUID(), "TASK_SUCCEEDED", execution, taskId(execution, 0), "{}");
+
+        send(execution, body, internal(), webshell()).andExpect(status().isNoContent());
+        send(execution, body, internal(), webshell()).andExpect(status().isNoContent());
+
+        Document document = findDocument();
+        assertThat(document.getCurrentVersion()).isEqualTo(1);
+        assertThat(documentVersionRepository.findByDocument_IdOrderByVersionDesc(document.getId(),
+                org.springframework.data.domain.Limit.unlimited())).hasSize(1);
+    }
+
+    @Test
+    void 롤백_Plan의_DOC_작업이_성공하면_복원한_본문이_새_버전으로_쌓인다() throws Exception {
+        succeed(saveDocExecution(PlanKind.NORMAL, "원래 본문"));
+        succeed(saveDocExecution(PlanKind.NORMAL, "고친 본문"));
+
+        succeed(saveDocExecution(PlanKind.ROLLBACK, "원래 본문"));
+
+        Document document = findDocument();
+        assertThat(document.getCurrentVersion()).isEqualTo(3);
+        assertThat(documentVersionRepository.findByDocument_IdAndVersion(document.getId(), 3).orElseThrow().getBody())
+                .isEqualTo("원래 본문");
+    }
+
+    @Test
+    void 저장된_문서는_프로젝트_문서_목록에_나온다() throws Exception {
+        succeed(saveDocExecution(PlanKind.NORMAL, "본문"));
+
+        mockMvc.perform(get("/api/v1/projects/{id}/documents", project.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, requesterToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].path").value(DOC_PATH));
     }
 }

@@ -16,6 +16,7 @@ import site.siyoung.beforeaibe.entity.Document;
 import site.siyoung.beforeaibe.entity.DocumentVersion;
 import site.siyoung.beforeaibe.entity.Request;
 import site.siyoung.beforeaibe.entity.Task;
+import site.siyoung.beforeaibe.entity.enums.TaskStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.exception.ApiException;
 import site.siyoung.beforeaibe.exception.ErrorCode;
@@ -90,7 +91,7 @@ public class DocumentService {
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "문서 버전을 찾을 수 없습니다"));
     }
 
-    // 기준 문서: 이 요청이 만든 버전이 있으면(이미 적용됨) 그 직전 버전, 없으면 현재 버전, 문서가 없으면 빈 문서
+    // 기준 문서: 이 작업이 이미 적용됐으면 그 직전 버전, 아니면 현재 버전, 문서가 없으면 빈 문서
     public TaskDocumentResponse taskDocument(UUID userId, UUID requestId, UUID taskId) {
         Request request = requestService.getViewableRequest(requestId, userId);
         Task task = findRequestTask(request, taskId);
@@ -101,7 +102,7 @@ public class DocumentService {
         String body = task.getContent() == null || task.getContent().body() == null ? "" : task.getContent().body();
         Optional<Document> document = documentRepository.findByProject_IdAndPath(request.getProjectId(),
                 task.getTarget());
-        String baseBody = document.map(found -> baseBody(found, request.getId())).orElse("");
+        String baseBody = document.map(found -> baseBody(found, request.getId(), task)).orElse("");
         return new TaskDocumentResponse(document.map(Document::getId).orElse(null), task.getId(), body,
                 unifiedDiff(task.getTarget(), baseBody, body));
     }
@@ -120,15 +121,27 @@ public class DocumentService {
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "작업을 찾을 수 없습니다"));
     }
 
-    private String baseBody(Document document, UUID requestId) {
-        Optional<DocumentVersion> applied = documentVersionRepository
-                .findFirstByDocument_IdAndRequest_IdOrderByVersionAsc(document.getId(), requestId);
-        // 이 요청이 첫 버전을 만들었다면 직전 버전이 없으므로 빈 문서가 기준
+    // 한 요청이 일반 작업과 롤백 작업으로 버전을 여러 개 만들 수 있으므로, 요청이 아니라 작업 기준으로 적용 여부를 판단함.
+    // 그렇지 않으면 승인 전 롤백 작업의 diff가 비거나 틀려 승인자가 실제 변경을 볼 수 없음
+    private String baseBody(Document document, UUID requestId, Task task) {
+        Optional<DocumentVersion> applied = task.getStatus() == TaskStatus.SUCCEEDED
+                ? findAppliedVersion(document, requestId, task)
+                : Optional.empty();
+        // 이 작업이 첫 버전을 만들었다면 직전 버전이 없으므로 빈 문서가 기준
         Optional<DocumentVersion> base = applied.isPresent()
                 ? documentVersionRepository.findFirstByDocument_IdAndVersionLessThanOrderByVersionDesc(
                         document.getId(), applied.get().getVersion())
                 : documentVersionRepository.findByDocument_IdAndVersion(document.getId(), document.getCurrentVersion());
         return base.map(DocumentVersion::getBody).orElse("");
+    }
+
+    // 버전 행에 작업 ID가 없으므로, 이 요청이 만든 버전 중 작업 본문과 같은 가장 최근 버전을 작업의 결과로 봄
+    private Optional<DocumentVersion> findAppliedVersion(Document document, UUID requestId, Task task) {
+        String body = task.getContent() == null ? null : task.getContent().body();
+        return documentVersionRepository.findByDocument_IdAndRequest_IdOrderByVersionDesc(document.getId(), requestId)
+                .stream()
+                .filter(version -> version.getBody().equals(body))
+                .findFirst();
     }
 
     // 바뀐 내용이 없으면 빈 문자열

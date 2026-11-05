@@ -74,11 +74,11 @@ class DocumentVersionRepositoryTest {
     }
 
     @Test
-    void 요청이_처음_만든_버전과_그_직전_버전을_찾는다() {
+    void 요청이_만든_버전을_최신순으로_찾고_그_직전_버전을_찾는다() {
         persistVersions();
 
         DocumentVersion applied = documentVersionRepository
-                .findFirstByDocument_IdAndRequest_IdOrderByVersionAsc(document.getId(), second.getId()).orElseThrow();
+                .findByDocument_IdAndRequest_IdOrderByVersionDesc(document.getId(), second.getId()).getLast();
         DocumentVersion previous = documentVersionRepository
                 .findFirstByDocument_IdAndVersionLessThanOrderByVersionDesc(document.getId(), applied.getVersion())
                 .orElseThrow();

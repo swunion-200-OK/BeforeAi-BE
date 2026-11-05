@@ -71,6 +71,9 @@ public class KillSwitchService {
         for (Task task : execution.getPlan().getTasks()) {
             if (NOT_STARTED.contains(task.getStatus())) {
                 task.changeStatus(TaskStatus.SKIPPED);
+            } else if (task.getStatus() == TaskStatus.RUNNING) {
+                // 실행 중이던 작업은 끝까지 가지 못했으므로 실패로 남김
+                task.changeStatus(TaskStatus.FAILED);
             }
         }
         requestStreamService.publishTreeReplaced(request);
