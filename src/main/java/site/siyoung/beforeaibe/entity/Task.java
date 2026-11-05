@@ -92,6 +92,25 @@ public class Task {
         this.status = status;
     }
 
+    // 새 Plan(삭제 반영·실패 작업 재시도)에 넣을 같은 내용의 작업. order는 원래 값을 유지함
+    public Task copy(TaskStatus status) {
+        return Task.builder()
+                .order(order)
+                .type(type)
+                .risk(risk)
+                .title(title)
+                .target(target)
+                .content(content)
+                .relatedDepartments(relatedDepartments)
+                .requiredApprovers(requiredApprovers)
+                .status(status)
+                .build();
+    }
+
+    public void changeStatus(TaskStatus status) {
+        this.status = status;
+    }
+
     void assignPlan(Plan plan) {
         this.plan = plan;
     }

@@ -47,6 +47,8 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun   # 로컬 개발 프로필: 루�
 | `CORS_ALLOWED_ORIGINS` | | 브라우저 호출을 허용할 프론트 출처(쉼표 구분, `http://localhost:*` 같은 패턴 가능). 비어 있으면 같은 출처만. local 프로필 기본값은 localhost 전체 포트 |
 | `AUTH_REFRESH_COOKIE_SECURE` | | 리프레시 쿠키 Secure 여부. 기본 `true` |
 | `WEBSHELL_ENCRYPTION_PUBLIC_KEY`, `WEBSHELL_SIGNING_PUBLIC_KEY` | | 웹쉘 공개키(Base64). 비어 있으면 `/webshell/public-key`가 502 |
+| `WEBSHELL_BASE_URL` | | 웹쉘 주소(내부망). 비어 있으면 웹쉘 호출(`/requests/{id}/kill`)이 502 |
+| `WEBSHELL_SSL_BUNDLE` | | 웹쉘 mTLS 클라이언트 인증서를 등록한 Spring Boot SSL 번들 이름(`spring.ssl.bundle.pem.<이름>.*`로 등록) |
 | `SEED_PASSWORD` | local 프로필 | 시드 계정(ADMIN001, MGR001, EMP001, EMP002, EMP101) 비밀번호 |
 
 ## 디렉터리 구조
@@ -94,7 +96,7 @@ src/main/resources/
 - SQL 예약어와 겹치는 필드는 컬럼명만 바꿉니다 (예: `order` → `task_order`, `sequence` → `log_sequence`).
 
 ### 데이터베이스 / 마이그레이션
-- `spring.jpa.hibernate.ddl-auto=validate`입니다. **스키마 변경은 반드시 새 Flyway 파일**(`V2__...sql`, `V3__...sql`)로 하고, 엔티티 매핑과 일치시킵니다.
+- `spring.jpa.hibernate.ddl-auto=update`입니다. 그래도 **스키마 변경은 반드시 새 Flyway 파일**(`V2__...sql`, `V3__...sql`)로 하고, 엔티티 매핑과 일치시킵니다. `update`는 매핑과 마이그레이션이 어긋나도 컬럼을 몰래 만들어 주므로, 스키마를 바꿨다면 `SPRING_JPA_HIBERNATE_DDL_AUTO=validate ./gradlew test`로 일치 여부를 확인합니다.
 - 이미 적용된 마이그레이션 파일은 절대 수정하지 않습니다.
 - 외래키 컬럼에는 조회 패턴에 맞는 인덱스를 함께 추가합니다.
 
