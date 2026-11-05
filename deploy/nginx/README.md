@@ -27,8 +27,11 @@ FORWARD_HEADERS_STRATEGY=framework
 # HTTPS 뒤이므로 리프레시 쿠키 Secure 유지
 AUTH_REFRESH_COOKIE_SECURE=true
 # CORS: 외부 프론트 도메인
-CORS_ALLOWED_ORIGINS=https://앱도메인,https://*.pages.dev
+CORS_ALLOWED_ORIGINS=https://swunion.pages.dev,https://*.pages.dev
 ```
+
+> 참고: `CORS_ALLOWED_ORIGINS` 는 **브라우저 프론트의 출처**다(API 도메인이 아님).
+> 프론트가 `swunion-server.siyoung.site` 를 호출하는 쪽이고, 값에는 프론트 배포 출처를 넣는다.
 
 > 중요: `NETWORK_TRUST_PROXY_HEADER=true` 로 켜는 순간, 앱은 소켓 IP 를 보지 않고 헤더만 본다.
 > 따라서 **반드시 두 Nginx 입구를 통해서만** 트래픽이 오게 하고, 8080 직접 접근을 막아야 한다.
@@ -37,7 +40,7 @@ CORS_ALLOWED_ORIGINS=https://앱도메인,https://*.pages.dev
 
 ## 1) 외부 — Nginx + Cloudflare
 
-1. `beforeai.conf` 의 `server_name`, 인증서 경로, CORS 도메인 수정.
+1. `beforeai.conf` 의 인증서 경로, CORS 도메인 확인(server_name 은 swunion-server.siyoung.site 로 설정됨).
 2. 인증서: Cloudflare 대시보드 → SSL/TLS → Origin Server → Origin Certificate 발급 →
    `/etc/ssl/beforeai/origin.pem`, `origin.key` 로 저장. Cloudflare SSL 모드는 **Full (strict)** 권장.
 3. 설치:
@@ -71,7 +74,7 @@ CORS_ALLOWED_ORIGINS=https://앱도메인,https://*.pages.dev
 
 ```bash
 # 외부(도메인)에서 /me 호출 → 응답 헤더 X-Network: EXTERNAL 이어야
-curl -si https://api.example.com/api/v1/me -H "Authorization: Bearer <tok>" | grep -i x-network
+curl -si https://swunion-server.siyoung.site/api/v1/me -H "Authorization: Bearer <tok>" | grep -i x-network
 
 # 내부(tailnet)에서 /me 호출 → X-Network: INTERNAL 이어야
 curl -si https://<machine>.<tailnet>.ts.net/api/v1/me -H "Authorization: Bearer <tok>" | grep -i x-network
