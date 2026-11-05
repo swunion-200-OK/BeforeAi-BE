@@ -105,7 +105,8 @@ public class EditorService {
         return EditorChangeResponse.from(saved);
     }
 
-    // 파일별 unified diff를 하나로 합쳐 코드 수정 작업 1개로 만듦. 여러 파일이면 target은 대표 경로 표기
+    // 파일별 unified diff를 하나로 합쳐 코드 수정 작업 1개로 만듦. 여러 파일이면 target은 대표 경로 표기.
+    // AI가 만든 작업이 아니므로 explanation은 null
     private Task buildCodeTask(EditorChangeRequest request, Project project, UUID userId) {
         List<FileChange> files = request.files();
         String combinedDiff = files.stream().map(FileChange::patch).collect(Collectors.joining("\n"));

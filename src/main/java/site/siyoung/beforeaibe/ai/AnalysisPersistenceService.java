@@ -136,7 +136,7 @@ public class AnalysisPersistenceService {
             return task;
         }
         return new AiTask(task.type(), task.risk(), task.title(), task.target(),
-                UnifiedDiffNormalizer.normalize(task.diff()), task.command(), task.query(), task.body());
+                UnifiedDiffNormalizer.normalize(task.diff()), task.command(), task.query(), task.body(), task.explanation());
     }
 
     // 재분석이 이전 Plan을 바탕으로 고치도록 작업 목록과 내용을 넘김
@@ -179,6 +179,7 @@ public class AnalysisPersistenceService {
                 .relatedDepartments(List.of())
                 .requiredApprovers(approverResolver.resolve(aiTask.type(), risk, project, requesterId))
                 .status(TaskStatus.PENDING)
+                .explanation(aiTask.explanation())
                 .build();
     }
 

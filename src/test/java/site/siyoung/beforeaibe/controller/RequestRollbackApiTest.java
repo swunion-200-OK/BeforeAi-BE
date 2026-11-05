@@ -31,6 +31,7 @@ import site.siyoung.beforeaibe.entity.enums.TaskStatus;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import site.siyoung.beforeaibe.repository.DepartmentRepository;
 import site.siyoung.beforeaibe.repository.DocumentRepository;
 import site.siyoung.beforeaibe.repository.DocumentVersionRepository;
@@ -168,6 +169,7 @@ class RequestRollbackApiTest {
                 .type(TaskType.DOC)
                 .risk(Risk.LOW)
                 .title("로그인 안내 문서 수정")
+                .explanation(new TaskExplanation("안내 문서를 바꾼다", List.of(), List.of(), "이전 버전으로 복원"))
                 .target(PATH)
                 .content(new TaskContent(null, null, null, "새 안내"))
                 .relatedDepartments(List.of())
@@ -231,6 +233,8 @@ class RequestRollbackApiTest {
             assertThat(task.getType()).isEqualTo(TaskType.DOC);
             assertThat(task.getTarget()).isEqualTo(PATH);
             assertThat(task.getContent().body()).isEqualTo("이전 안내");
+            // 본문이 원본 설명과 달라졌으므로 설명은 복사하지 않음
+            assertThat(task.getExplanation()).isNull();
             assertThat(task.getStatus()).isEqualTo(TaskStatus.PENDING);
             assertThat(task.getRequiredApprovers()).singleElement()
                     .satisfies(approver -> assertThat(approver.candidates()).containsExactly(candidate.getId()));

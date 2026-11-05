@@ -193,6 +193,8 @@ class EditorApiTest {
         assertThat(plan.getTasks().getFirst().getTarget()).isEqualTo("src/auth/session.ts");
         assertThat(plan.getTasks().getFirst().getContent().diff()).contains("+b");
         assertThat(plan.getTasks().getFirst().getRequiredApprovers()).isNotEmpty();
+        // AI가 만든 작업이 아니므로 설명은 없음
+        assertThat(plan.getTasks().getFirst().getExplanation()).isNull();
     }
 
     @Test

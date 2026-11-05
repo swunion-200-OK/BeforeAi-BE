@@ -12,6 +12,7 @@ import site.siyoung.beforeaibe.ai.dto.AnalysisResult;
 import site.siyoung.beforeaibe.ai.prompt.PromptBuilder;
 import site.siyoung.beforeaibe.entity.enums.Risk;
 import site.siyoung.beforeaibe.entity.enums.TaskType;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
@@ -19,6 +20,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
+import software.amazon.awssdk.services.bedrockruntime.model.StopReason;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 
 import java.util.ArrayList;
@@ -41,7 +43,7 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
     public BedrockAiAnalyzer(BedrockRuntimeClient client,
                              PromptBuilder promptBuilder,
                              @Value("${bedrock.model-id}") String modelId,
-                             @Value("${bedrock.max-tokens:4096}") int maxTokens,
+                             @Value("${bedrock.max-tokens:8192}") int maxTokens,
                              @Value("${bedrock.temperature:-1}") float temperature) {
         this.client = client;
         this.promptBuilder = promptBuilder;
@@ -80,6 +82,10 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
                 .build();
 
         ConverseResponse response = client.converse(request);
+        if (response.stopReason() == StopReason.MAX_TOKENS) {
+            // 잘린 JSON은 파싱할 수 없으므로 원인이 드러나게 따로 실패시킴
+            throw new TruncatedResponseException();
+        }
         return response.output().message().content().stream()
                 .filter(block -> block.type() == ContentBlock.Type.TEXT)
                 .map(ContentBlock::text)
@@ -117,7 +123,59 @@ public class BedrockAiAnalyzer implements AiAnalyzer {
         TaskType type = TaskType.valueOf(text(t, "type"));
         Risk risk = parseRisk(text(t, "risk"));
         return new AiTask(type, risk, text(t, "title"), text(t, "target"),
-                text(t, "diff"), text(t, "command"), text(t, "query"), text(t, "body"));
+                text(t, "diff"), text(t, "command"), text(t, "query"), text(t, "body"),
+                parseExplanation(t.get("explanation")));
+    }
+
+    // 설명은 표시용 부가 정보라 형식이 틀려도 분석을 실패시키지 않고 null로 둔다.
+    // summary가 없으면 통째로 버리고, 나머지는 멀쩡한 항목만 남긴다.
+    private TaskExplanation parseExplanation(JsonNode node) {
+        try {
+            if (node == null || !node.isObject()) {
+                return null;
+            }
+            String summary = textualOrNull(node.get("summary"));
+            if (summary == null) {
+                return null;
+            }
+            List<TaskExplanation.Change> changes = new ArrayList<>();
+            JsonNode changesNode = node.get("changes");
+            if (changesNode != null && changesNode.isArray()) {
+                for (JsonNode c : changesNode) {
+                    String where = c.isObject() ? textualOrNull(c.get("where")) : null;
+                    String what = c.isObject() ? textualOrNull(c.get("what")) : null;
+                    if (where != null && what != null) {
+                        changes.add(new TaskExplanation.Change(where, what,
+                                textualOrNull(c.get("before")), textualOrNull(c.get("after"))));
+                    }
+                }
+            }
+            List<String> impact = new ArrayList<>();
+            JsonNode impactNode = node.get("impact");
+            if (impactNode != null && impactNode.isArray()) {
+                for (JsonNode i : impactNode) {
+                    String value = textualOrNull(i);
+                    if (value != null) {
+                        impact.add(value);
+                    }
+                }
+            }
+            return new TaskExplanation(summary, changes, impact, textualOrNull(node.get("undo")));
+        } catch (RuntimeException e) {
+            log.warn("작업 설명 파싱 실패, 설명 없이 진행합니다", e);
+            return null;
+        }
+    }
+
+    // 문자열 노드이고 비어 있지 않을 때만 값을 돌려줌(숫자·객체·배열은 형식 불일치로 봄)
+    private String textualOrNull(JsonNode node) {
+        return node != null && node.isTextual() && !node.asText().isBlank() ? node.asText() : null;
+    }
+
+    private static class TruncatedResponseException extends RuntimeException {
+        TruncatedResponseException() {
+            super("AI 응답이 최대 토큰 수에서 잘렸습니다");
+        }
     }
 
     // 모델이 FORBIDDEN 등 범위를 벗어난 값을 줄 수 있어 LOW/MEDIUM/HIGH만 허용, 그 외는 MEDIUM으로 보정

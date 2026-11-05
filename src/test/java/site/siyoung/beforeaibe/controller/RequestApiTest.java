@@ -37,6 +37,7 @@ import site.siyoung.beforeaibe.entity.enums.TaskType;
 import site.siyoung.beforeaibe.entity.value.ApprovalEnvelope;
 import site.siyoung.beforeaibe.entity.value.RequiredApprover;
 import site.siyoung.beforeaibe.entity.value.TaskContent;
+import site.siyoung.beforeaibe.entity.value.TaskExplanation;
 import site.siyoung.beforeaibe.exception.ApiException;
 import site.siyoung.beforeaibe.exception.ErrorCode;
 import site.siyoung.beforeaibe.repository.ApprovalRepository;
@@ -184,8 +185,12 @@ class RequestApiTest {
         return planRepository.saveAndFlush(plan);
     }
 
+    private static final TaskExplanation EXPLANATION = new TaskExplanation("실패 메시지를 바꾼다",
+            List.of(new TaskExplanation.Change("src/auth/login.ts", "문구", "실패", "다시 시도")), List.of("로그인 사용자"), "되돌리기");
+
     private static Task codeTask(int order, TaskStatus status) {
         return Task.builder()
+                .explanation(EXPLANATION)
                 .order(order)
                 .type(TaskType.CODE_FEATURE)
                 .risk(Risk.MEDIUM)
@@ -445,6 +450,24 @@ class RequestApiTest {
         assertThat(after.getTasks().getFirst().getStatus()).isEqualTo(TaskStatus.PENDING);
         // 지난 Plan은 그대로 남음
         assertThat(planRepository.findWithTasksById(before.getId()).orElseThrow().getTasks()).hasSize(2);
+    }
+
+    @Test
+    void 작업을_삭제해_만든_새_Plan은_남은_작업의_설명을_유지한다() throws Exception {
+        Request request = saveRequest(RequestStatus.REVIEWING,
+                codeTask(1, TaskStatus.PENDING), deployTask(2, TaskStatus.PENDING, List.of(candidate.getId())));
+        Plan before = currentPlan(request.getId());
+        UUID deployTaskId = before.getTasks().get(1).getId();
+
+        mockMvc.perform(patch("/api/v1/requests/{id}/plan", request.getId()).with(internal())
+                        .header(HttpHeaders.AUTHORIZATION, token("EMP001"))
+                        .contentType("application/json")
+                        .content("{\"basePlanId\": \"%s\", \"changes\": [{\"op\": \"DELETE\", \"taskId\": \"%s\"}]}"
+                                .formatted(before.getId(), deployTaskId)))
+                .andExpect(status().isAccepted());
+
+        assertThat(currentPlan(request.getId()).getTasks()).singleElement()
+                .satisfies(task -> assertThat(task.getExplanation()).isEqualTo(EXPLANATION));
     }
 
     @Test
@@ -709,6 +732,8 @@ class RequestApiTest {
         assertThat(retryPlan.getTasks()).extracting(Task::getOrder).containsExactly(2, 3);
         assertThat(retryPlan.getTasks()).extracting(Task::getStatus)
                 .containsOnly(TaskStatus.PENDING);
+        // 내용이 같은 복사이므로 AI 설명도 유지됨 (deployTask는 설명 없음)
+        assertThat(retryPlan.getTasks()).extracting(Task::getExplanation).containsExactly(EXPLANATION, null);
     }
 
     @Test
